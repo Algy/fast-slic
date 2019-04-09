@@ -130,23 +130,61 @@ extern "C" {
     void slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
         const int S = (int)sqrt(H * W / K);
 
-        int i = 0, j = 0;
-        for (int k = 0; k < K; k++) {
-            clusters[k].y = i;
-            clusters[k].x = j;
+        int *gradients = new int[H * W];
 
-            j += S;
-            if (j >= W) {
-                j = 0;
-                i += S;
-            }
-            if (i >= H) {
-                i = H - 1;
-                j = W - 1;
+        // compute gradients
+        std::fill_n(gradients, H * W, 1 << 21);
+        for (int i = 1; i < H; i += S) {
+            for (int j = 1; j < W; j += S) {
+                int base_index = i * W + j;
+                int img_base_index = 3 * base_index;
+                int dx = 
+                    fast_abs(image[img_base_index + 3] - image[img_base_index - 3]) +
+                    fast_abs(image[img_base_index + 4] - image[img_base_index - 2]) +
+                    fast_abs(image[img_base_index + 5] - image[img_base_index - 1]);
+                int dy = 
+                    fast_abs(image[img_base_index + 3 * W] - image[img_base_index - 3 * W]) +
+                    fast_abs(image[img_base_index + 3 * W + 1] - image[img_base_index - 3 * W + 1]) +
+                    fast_abs(image[img_base_index + 3 * W + 2] - image[img_base_index - 3 * W + 2]);
+                gradients[base_index] = dx + dy;
             }
         }
 
-        // TODO: move center to the position where gradient is low
+        int acc_k = 0;
+        for (int i = 0; i < H; i += S) {
+            for (int j = 0; j < W; j += S) {
+                if (acc_k >= K) break;
+
+                int eh = my_min<int>(i + S, H - 1), ew = my_min<int>(j + S, W - 1);
+                int center_y = i + S / 2, center_x = j + S / 2;
+                int min_gradient = 1 << 21;
+                for (int ty = i; ty < eh; ty++) {
+                    for (int tx = j; tx < ew; tx++) {
+                        int base_index = ty * W + tx;
+                        if (min_gradient > gradients[base_index]) {
+                            center_y = ty;
+                            center_x = tx;
+                            min_gradient = gradients[base_index];
+                        }
+
+                    }
+                }
+
+                clusters[acc_k].y = center_y;
+                clusters[acc_k].x = center_x;
+
+
+                acc_k++;
+            }
+        }
+
+        while (acc_k < K) {
+            clusters[acc_k].y = H / 2;
+            clusters[acc_k].x = W / 2;
+            acc_k++;
+        }
+
+        delete [] gradients;
 
 
         for (int k = 0; k < K; k++) {
