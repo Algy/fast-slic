@@ -8,6 +8,8 @@
 #include <chrono>
 #include <memory>
 
+#include "fast-slic.h"
+
 #define CHARBIT 8
 
 template <typename T>
@@ -23,7 +25,7 @@ static inline T my_min(T x, T y) {
 
 
 template <typename T>
-T fast_abs(T n)
+static T fast_abs(T n)
 {
     // This doesn't help much
     /*
@@ -35,25 +37,6 @@ T fast_abs(T n)
     return n;
 }
 
-
-typedef uint16_t cluster_no_t;
-typedef uint16_t quantize_val_t;
-
-struct Cluster {
-    // 7 bytes
-    uint16_t y;
-    uint16_t x;
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    // 1 byte dummy data
-    uint8_t reserved[1];
-
-    cluster_no_t number; // 2 bytes
-    uint8_t is_active;
-    uint32_t num_members;
-
-};
 
 extern "C" {
     void slic_assign(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
