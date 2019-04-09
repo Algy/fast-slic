@@ -7,6 +7,8 @@
 #include <fstream>
 #include <chrono>
 #include <memory>
+#include <vector>
+#include <unordered_set>
 
 #include "fast-slic.h"
 
@@ -158,12 +160,81 @@ extern "C" {
         }
     }
 
-    // TODO: assign unassigned pixels
+    void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, uint32_t* assignment) {
+        if (K <= 0) return;
+
+        uint8_t *visited = new uint8_t[H * W];
+        std::fill_n(visited, H * W, 0);
+
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                int base_index = W * i + j;
+                if (assignment[base_index] != 0xFFFF) continue;
+
+                std::vector<int> visited_indices;
+                std::vector<int> stack;
+                std::unordered_set<int> adj_cluster_indices;
+                stack.push_back(base_index);
+                while (!stack.empty()) {
+                    int index = stack.back();
+                    stack.pop_back();
+
+                    if (assignment[index] != 0xFFFF) {
+                        adj_cluster_indices.insert(assignment[index]);
+                        continue;
+                    } else if (visited[index]) {
+                        continue;
+                    }
+                    visited[index] = 1;
+                    visited_indices.push_back(index);
+
+                    int index_j = index % W;
+                    // up
+                    if (index > W) {
+                        stack.push_back(index - W);
+                    }
+
+                    // down
+                    if (index + W < H * W) {
+                        stack.push_back(index + W);
+                    }
+
+                    // left
+                    if (index_j > 0) {
+                        stack.push_back(index - 1);
+                    }
+
+                    // right
+                    if (index_j + 1 < W) {
+                        stack.push_back(index + 1);
+                    }
+                }
+
+                int target_cluster_index = 0;
+                int max_num_members = 0;
+                for (auto it = adj_cluster_indices.begin(); it != adj_cluster_indices.end(); ++it) {
+                    const Cluster* adj_cluster = &clusters[*it];
+                    if (max_num_members < adj_cluster->num_members) {
+                        target_cluster_index = adj_cluster->number;
+                        max_num_members = adj_cluster->num_members;
+                    }
+                }
+
+                for (auto it = visited_indices.begin(); it != visited_indices.end(); ++it) {
+                    assignment[*it] = target_cluster_index;
+                }
+
+            }
+        }
+        delete [] visited;
+    }
+
     void do_slic(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
         for (int i = 0; i < max_iter; i++) {
             slic_assign(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
             slic_update_clusters(H, W, K, image, clusters, assignment);
         }
+        slic_enforce_connectivity(H, W, K, clusters, assignment);
     }
 }
 
