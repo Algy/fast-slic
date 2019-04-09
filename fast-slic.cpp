@@ -303,8 +303,8 @@ int main(int argc, char** argv) {
     int H = 480;
     int W = 640;
     Cluster clusters[K];
-    std::unique_ptr<uint8_t> image { new uint8_t[H * W * 3] };
-    std::unique_ptr<uint32_t> assignment { new uint32_t[H * W] };
+    std::unique_ptr<uint8_t[]> image { new uint8_t[H * W * 3] };
+    std::unique_ptr<uint32_t[]> assignment { new uint32_t[H * W] };
 
     std::ifstream inputf("/tmp/a.txt");
     for (int i = 0; i < H; i++) {
