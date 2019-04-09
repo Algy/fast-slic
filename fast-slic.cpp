@@ -192,7 +192,7 @@ extern "C" {
         }
     }
 
-    void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, uint32_t* assignment) {
+    static void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, uint32_t* assignment) {
         if (K <= 0) return;
 
         uint8_t *visited = new uint8_t[H * W];
