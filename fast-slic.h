@@ -1,5 +1,6 @@
 #ifndef _FAST_SLIC_H
 #define _FAST_SLIC_H
+#include <stdint.h>
 
 typedef uint16_t cluster_no_t;
 
