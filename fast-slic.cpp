@@ -1,12 +1,6 @@
-#include <iostream>
 #include <cstdint>
-#include <cassert>
-#include <string>
 #include <cmath>
 #include <algorithm>
-#include <fstream>
-#include <chrono>
-#include <memory>
 #include <vector>
 #include <unordered_set>
 
@@ -276,6 +270,12 @@ extern "C" {
     }
 }
 
+#ifdef PROTOTYPE_MAIN_DEMO
+#include <string>
+#include <chrono>
+#include <fstream>
+#include <memory>
+#include <iostream>
 typedef std::chrono::high_resolution_clock Clock;
 int main(int argc, char** argv) {
     int K = 100;
@@ -342,3 +342,4 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
+#endif
