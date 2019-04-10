@@ -1,10 +1,18 @@
 # cython: language_level=3
-from libc.stdint cimport uint8_t, uint32_t
-
+from libc.stdint cimport uint8_t, uint32_t, uint16_t
 
 cdef extern from "fast-slic.h":
     ctypedef struct Cluster:
-        pass
+        uint16_t y
+        uint16_t x;
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+        uint8_t reserved[1]
+        uint16_t number
+        uint8_t is_active
+        uint32_t num_members
+
     void slic_assign(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) nogil
     void slic_update_clusters(int H, int W, int K, const uint8_t* image, Cluster* clusters, const uint32_t* assignment) nogil
     void slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
