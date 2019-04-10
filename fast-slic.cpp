@@ -147,23 +147,10 @@ static void slic_assign_pixel_oriented(Context* context) {
         context->cluster_boxes = new ClusterPixel[box_H * box_W];
     }
 
-    if (!context->cluster_pixels) {
-        context->cluster_pixels = new ClusterPixel[H * W];
-    }
-
     ClusterPixel* cluster_boxes = context->cluster_boxes;
-    ClusterPixel* cluster_pixels = context->cluster_pixels;
-
     for (int i = 0; i < box_H; i++) {
         for (int j = 0; j < box_W; j++) {
             cluster_boxes[i * box_W + j].last_index = -1;
-        }
-    }
-
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            cluster_pixels[i * W + j].last_index = -1;
         }
     }
 
@@ -179,38 +166,7 @@ static void slic_assign_pixel_oriented(Context* context) {
     }
 
 
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            ClusterPixel *px = &cluster_pixels[i * W + j];
-
-            int center_box_i = i / S + 1;
-            int center_box_j = j / S + 1;
-
-            #pragma GCC unroll(9)
-            for (int8_t r = 0; r < 9; r++) {
-                int di = r / 3 - 1, dj = r % 3 - 1;
-                // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
-
-                int box_i = center_box_i + di, box_j = center_box_j + dj;
-                const ClusterPixel *box = &cluster_boxes[box_i * box_W + box_j];
-                for (int8_t k = 0; k <= box->last_index; k++) {
-                    uint16_t cluster_no = box->cluster_nos[k];
-                    const Cluster *cluster = &clusters[cluster_no];
-                    if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
-                        if (px->last_index >= 8) {
-                            goto PX_FULL;
-                        }
-                        px->cluster_nos[++px->last_index] = cluster_no;
-                    }
-                }
-            }
-PX_FULL:;
-        }
-    }
-
     auto t01 = Clock::now();
-
     std::cerr << "ALLOC " << std::chrono::duration_cast<std::chrono::microseconds>(t01-t0).count() << "us \n";
     auto t1 = Clock::now();
 
@@ -222,20 +178,32 @@ PX_FULL:;
             int32_t base_index = W * i + j;
             int32_t img_base_index = 3 * base_index;
 
-            const ClusterPixel *px = &cluster_pixels[base_index];
             uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
-            uint32_t min_val = 0xFFFFFFFF;
-            for (int8_t k = 0; k <= px->last_index; k++) {
-                const Cluster *cluster = &clusters[px->cluster_nos[k]];
-                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+            int center_box_i = i / S + 1;
+            int center_box_j = j / S + 1;
 
-                uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
-                uint16_t dist = color_dist + spatial_dist;
-                uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster->number;
-                //vals[k] = assignment_val;
-                if (min_val > assignment_val)
-                    min_val = assignment_val;
+            uint32_t min_val = 0xFFFFFFFF;
+            #pragma GCC unroll(9)
+            for (int8_t r = 0; r < 9; r++) {
+                int di = r / 3 - 1, dj = r % 3 - 1;
+                // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+
+                int box_i = center_box_i + di, box_j = center_box_j + dj;
+                const ClusterPixel *box = &cluster_boxes[box_i * box_W + box_j];
+                for (int8_t k = 0; k <= box->last_index; k++) {
+                    uint16_t cluster_no = box->cluster_nos[k];
+                    const Cluster *cluster = &clusters[cluster_no];
+                    if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
+                        uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+
+                        uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
+                        uint16_t dist = color_dist + spatial_dist;
+                        uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster->number;
+                        if (min_val > assignment_val)
+                            min_val = assignment_val;
+                    }
+                }
             }
 
             // Drop distance part in assignment and let only cluster numbers remain
