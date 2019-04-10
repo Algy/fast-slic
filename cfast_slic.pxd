@@ -1,7 +1,5 @@
 # cython: language_level=3
 
-cimport cfast_slic 
-
 from libc.stdint cimport uint8_t, uint32_t, uint16_t
 
 cdef extern from "fast-slic.h":
@@ -23,7 +21,7 @@ cdef extern from "fast-slic.h":
 
 
 cdef class SlicModel:
-    cdef cfast_slic.Cluster* _c_clusters
+    cdef Cluster* _c_clusters
     cdef readonly int num_components
     cdef public object initialized
 
