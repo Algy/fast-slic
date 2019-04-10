@@ -40,6 +40,7 @@ extern "C" {
         const int16_t S = (int16_t)sqrt(H * W / K);
         std::fill_n(assignment, H * W, 0xFFFFFFFF);
 
+        uint8_t spatial_shift = quantize_level + compactness_shift;
         // I found threads More than 3 don't help
         #pragma omp parallel for num_threads(3)
         for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
@@ -60,9 +61,9 @@ extern "C" {
                     // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
                     // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
                     // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-                    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster.r) + fast_abs<int16_t>(g - (int16_t)cluster.g) + fast_abs<int16_t>(b - (int16_t)cluster.b)) << quantize_level) >> compactness_shift;
+                    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster.r) + fast_abs<int16_t>(g - (int16_t)cluster.g) + fast_abs<int16_t>(b - (int16_t)cluster.b)) << quantize_level);
 
-                    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster.y) + fast_abs<int16_t>(j - (int16_t)cluster.x)) << quantize_level) / S; 
+                    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster.y) + fast_abs<int16_t>(j - (int16_t)cluster.x)) << spatial_shift) / S; 
                     uint16_t dist = color_dist + spatial_dist; // 🙏 pray to god there was no overflow error 🙏
                     uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster.number;
 
