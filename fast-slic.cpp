@@ -139,9 +139,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     }
 }
 
-#include <iostream>
-#include <chrono>
-typedef std::chrono::high_resolution_clock Clock;
 static void slic_assign_pixel_oriented(Context* context) {
     auto H = context->H;
     auto W = context->W;
@@ -177,7 +174,7 @@ static void slic_assign_pixel_oriented(Context* context) {
         cluster_boxes[base_index].last_index = last_index + 1;
     }
 
-    auto t1 = Clock::now();
+    //auto t1 = Clock::now();
 
     uint8_t spatial_shift = quantize_level + compactness_shift;
 
@@ -231,21 +228,14 @@ static void slic_assign_pixel_oriented(Context* context) {
             }
         }
     }
-
-    auto t2 = Clock::now();
-
-    std::cerr << "ASS " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 }
 
 static void slic_assign(Context *context) {
-    auto t1 = Clock::now();
     if (!strcmp(context->algorithm, "cluster_oriented")) {
         slic_assign_cluster_oriented(context);
     } else if (!strcmp(context->algorithm, "pixel_oriented")) {
         slic_assign_pixel_oriented(context);
     }
-    auto t2 = Clock::now();
-    std::cerr << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 }
 
 static void slic_update_clusters(Context *context) {
@@ -510,7 +500,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    auto t1 = Clock::now();
+    // auto t1 = Clock::now();
     slic_initialize_clusters(H, W, K, image.get(), clusters);
     do_slic(H, W, K, compactness, quantize_level, max_iter, image.get(), clusters, assignment.get());
 
