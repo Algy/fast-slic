@@ -124,6 +124,28 @@ static void slic_assign_cluster_oriented(Context *context) {
     }
 }
 
+static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* cluster, uint8_t quantize_level, uint8_t spatial_shift) {
+    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+
+    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
+    uint16_t dist = color_dist + spatial_dist;
+    return ((uint32_t)dist << 16) + (uint32_t)cluster->number;
+}
+
+static inline uint32_t get_assignment_box_val(const ClusterPixel *box, int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* clusters, uint8_t quantize_level, uint8_t spatial_shift) {
+    uint32_t min_val = 0xFFFFFFFF;
+    for (int8_t k = 0; k <= box->last_index; k++) {
+        uint16_t cluster_no = box->cluster_nos[k];
+        const Cluster *cluster = &clusters[cluster_no];
+        if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
+            uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
+            if (min_val > assignment_val)
+                min_val = assignment_val;
+        }
+    }
+    return min_val;
+}
+
 #include <iostream>
 #include <chrono>
 typedef std::chrono::high_resolution_clock Clock;
@@ -167,8 +189,8 @@ static void slic_assign_pixel_oriented(Context* context) {
     uint8_t spatial_shift = quantize_level + compactness_shift;
 
     #pragma omp parallel for collapse(2)
-    for (int32_t i = 0; i < H; i++) {
-        for (int32_t j = 0; j < W; j++) {
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
             int32_t base_index = W * i + j;
             int32_t img_base_index = 3 * base_index;
 
@@ -178,26 +200,17 @@ static void slic_assign_pixel_oriented(Context* context) {
             int center_box_j = j / S + 1;
 
             uint32_t min_val = 0xFFFFFFFF;
+
             #pragma GCC unroll(9)
             for (int8_t delta = 0; delta < 9; delta++) {
                 int di = delta / 3 - 1, dj = delta % 3 - 1;
                 // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
-
+                //
                 int box_i = center_box_i + di, box_j = center_box_j + dj;
                 const ClusterPixel *box = &cluster_boxes[box_i * box_W + box_j];
-                for (int8_t k = 0; k <= box->last_index; k++) {
-                    uint16_t cluster_no = box->cluster_nos[k];
-                    const Cluster *cluster = &clusters[cluster_no];
-                    if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
-                        uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
-
-                        uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
-                        uint16_t dist = color_dist + spatial_dist;
-                        uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster->number;
-                        if (min_val > assignment_val)
-                            min_val = assignment_val;
-                    }
-                }
+                uint32_t assignment_val = get_assignment_box_val(box,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift);
+                if (min_val > assignment_val)
+                    min_val = assignment_val;
             }
 
             // Drop distance part in assignment and let only cluster numbers remain
