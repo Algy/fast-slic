@@ -154,27 +154,21 @@ static void slic_assign_pixel_oriented(Context* context) {
         }
     }
 
-    auto t0 = Clock::now();
-
     for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
         int32_t base_index = box_W * (clusters[cluster_idx].y / S + 1) + (clusters[cluster_idx].x / S + 1);
-        std::cerr << base_index << std::endl;
         int8_t last_index = cluster_boxes[base_index].last_index;
         if (last_index >= 8) continue;
         cluster_boxes[base_index].cluster_nos[last_index + 1] = cluster_idx;
         cluster_boxes[base_index].last_index = last_index + 1;
     }
 
-
-    auto t01 = Clock::now();
-    std::cerr << "ALLOC " << std::chrono::duration_cast<std::chrono::microseconds>(t01-t0).count() << "us \n";
     auto t1 = Clock::now();
 
     uint8_t spatial_shift = quantize_level + compactness_shift;
 
     #pragma omp parallel for collapse(2)
-    for (int16_t i = 0; i < H; i++) {
-        for (int16_t j = 0; j < W; j++) {
+    for (int32_t i = 0; i < H; i++) {
+        for (int32_t j = 0; j < W; j++) {
             int32_t base_index = W * i + j;
             int32_t img_base_index = 3 * base_index;
 
@@ -185,8 +179,8 @@ static void slic_assign_pixel_oriented(Context* context) {
 
             uint32_t min_val = 0xFFFFFFFF;
             #pragma GCC unroll(9)
-            for (int8_t r = 0; r < 9; r++) {
-                int di = r / 3 - 1, dj = r % 3 - 1;
+            for (int8_t delta = 0; delta < 9; delta++) {
+                int di = delta / 3 - 1, dj = delta % 3 - 1;
                 // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
 
                 int box_i = center_box_i + di, box_j = center_box_j + dj;
