@@ -67,6 +67,34 @@ static void free_context(Context *context) {
         delete [] context->cluster_boxes;
 }
 
+static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* cluster, uint8_t quantize_level, uint8_t spatial_shift) {
+    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+
+    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
+    uint16_t dist = color_dist + spatial_dist;
+    return ((uint32_t)dist << 16) + (uint32_t)cluster->number;
+}
+
+static inline uint32_t get_assignment_box_val(const ClusterPixel *box, int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* clusters, uint8_t quantize_level, uint8_t spatial_shift) {
+    // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
+    // OPTIMIZATION 2: L1 norm instead of L2
+    // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
+    // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
+    // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
+    uint32_t min_val = 0xFFFFFFFF;
+    for (int8_t k = 0; k <= box->last_index; k++) {
+        uint16_t cluster_no = box->cluster_nos[k];
+        const Cluster *cluster = &clusters[cluster_no];
+        if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
+            uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
+            if (min_val > assignment_val)
+                min_val = assignment_val;
+        }
+    }
+    return min_val;
+}
+
+
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
@@ -84,10 +112,10 @@ static void slic_assign_cluster_oriented(Context *context) {
     // I found threads More than 3 don't help
     #pragma omp parallel for num_threads(3)
     for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
-        const Cluster cluster = clusters[cluster_idx];
+        const Cluster *cluster = &clusters[cluster_idx];
 
-        const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
-        const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
+        const int16_t y_lo = my_max<int16_t>(0, cluster->y - S), y_hi = my_min<int16_t>(H, cluster->y + S);
+        const int16_t x_lo = my_max<int16_t>(0, cluster->x - S), x_hi = my_min<int16_t>(W, cluster->x + S);
 
         for (int16_t i = y_lo; i < y_hi; i++) {
             for (int16_t j = x_lo; j < x_hi; j++) {
@@ -96,17 +124,7 @@ static void slic_assign_cluster_oriented(Context *context) {
 
                 uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
-                // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
-                // OPTIMIZATION 2: L1 norm instead of L2
-                // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
-                // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
-                // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster.r) + fast_abs<int16_t>(g - (int16_t)cluster.g) + fast_abs<int16_t>(b - (int16_t)cluster.b)) << quantize_level);
-
-                uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster.y) + fast_abs<int16_t>(j - (int16_t)cluster.x)) << spatial_shift) / S; 
-                uint16_t dist = color_dist + spatial_dist; // 🙏 pray to god there was no overflow error 🙏
-                uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster.number;
-
+                uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
             }
@@ -119,28 +137,6 @@ static void slic_assign_cluster_oriented(Context *context) {
             assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
         }
     }
-}
-
-static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* cluster, uint8_t quantize_level, uint8_t spatial_shift) {
-    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
-
-    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
-    uint16_t dist = color_dist + spatial_dist;
-    return ((uint32_t)dist << 16) + (uint32_t)cluster->number;
-}
-
-static inline uint32_t get_assignment_box_val(const ClusterPixel *box, int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* clusters, uint8_t quantize_level, uint8_t spatial_shift) {
-    uint32_t min_val = 0xFFFFFFFF;
-    for (int8_t k = 0; k <= box->last_index; k++) {
-        uint16_t cluster_no = box->cluster_nos[k];
-        const Cluster *cluster = &clusters[cluster_no];
-        if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
-            uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
-            if (min_val > assignment_val)
-                min_val = assignment_val;
-        }
-    }
-    return min_val;
 }
 
 #include <iostream>
@@ -216,12 +212,20 @@ static void slic_assign_pixel_oriented(Context* context) {
                     get_assignment_box_val(boxes[8],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
                 };
 
-                uint32_t min_val = 0xFFFFFFFF;
-                #pragma GCC unroll 9
-                for (int dest = 0; dest < 9; dest++) {
-                    if (min_val > assignment_vals[dest])
-                        min_val = assignment_vals[dest];
-                }
+                uint32_t min_val = my_min(
+                    my_min(
+                        my_min(
+                            my_min(assignment_vals[0], assignment_vals[1]),
+                            my_min(assignment_vals[2], assignment_vals[3])
+                        ),
+                        my_min(
+                            my_min(assignment_vals[4], assignment_vals[5]),
+                            my_min(assignment_vals[6], assignment_vals[7])
+                        )
+                    ),
+                    assignment_vals[8]
+                );
+
                 // Drop distance part in assignment and let only cluster numbers remain
                 assignment[base_index] = min_val & 0x0000FFFF;
             }
@@ -417,7 +421,7 @@ extern "C" {
                 }
 
                 int target_cluster_index = 0;
-                int max_num_members = 0;
+                uint32_t max_num_members = 0;
                 for (auto it = adj_cluster_indices.begin(); it != adj_cluster_indices.end(); ++it) {
                     const Cluster* adj_cluster = &clusters[*it];
                     if (max_num_members < adj_cluster->num_members) {
@@ -440,7 +444,7 @@ extern "C" {
         Context context;
         init_context(&context);
         context.image = image;
-        context.algorithm = "pixel_oriented";
+        context.algorithm = "cluster_oriented";
         context.H = H;
         context.W = W;
         context.K = K;
