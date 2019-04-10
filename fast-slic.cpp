@@ -56,7 +56,6 @@ struct Context {
     Cluster* clusters;
     uint32_t* assignment;
     ClusterPixel *cluster_boxes;
-    ClusterPixel *cluster_pixels;
 };
 
 static void init_context(Context *context) {
@@ -66,8 +65,6 @@ static void init_context(Context *context) {
 static void free_context(Context *context) {
     if (context->cluster_boxes)
         delete [] context->cluster_boxes;
-    if (context->cluster_pixels)
-        delete [] context->cluster_pixels;
 }
 
 static void slic_assign_cluster_oriented(Context *context) {
@@ -199,20 +196,25 @@ static void slic_assign_pixel_oriented(Context* context) {
             int center_box_i = i / S + 1;
             int center_box_j = j / S + 1;
 
+            const ClusterPixel *box = &cluster_boxes[center_box_i * box_W + center_box_j];
+            // Horable :(
+            uint32_t assignment_vals[9] = {
+                get_assignment_box_val(box - box_W - 1,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box - box_W,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box - box_W + 1,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box - 1,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box + 1,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box + box_W - 1 ,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box + box_W,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                get_assignment_box_val(box + box_W + 1,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+            };
+
             uint32_t min_val = 0xFFFFFFFF;
-
-            #pragma GCC unroll(9)
-            for (int8_t delta = 0; delta < 9; delta++) {
-                int di = delta / 3 - 1, dj = delta % 3 - 1;
-                // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
-                //
-                int box_i = center_box_i + di, box_j = center_box_j + dj;
-                const ClusterPixel *box = &cluster_boxes[box_i * box_W + box_j];
-                uint32_t assignment_val = get_assignment_box_val(box,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift);
-                if (min_val > assignment_val)
-                    min_val = assignment_val;
+            for (int dest = 0; dest < 9; dest++) {
+                if (min_val > assignment_vals[dest])
+                    min_val = assignment_vals[dest];
             }
-
             // Drop distance part in assignment and let only cluster numbers remain
             assignment[base_index] = min_val & 0x0000FFFF;
         }
