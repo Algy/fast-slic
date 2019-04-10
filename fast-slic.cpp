@@ -92,21 +92,19 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
     const int16_t S = (int16_t)sqrt(H * W / K);
     std::fill_n(assignment, H * W, 0xFFFFFFFF);
 
-    uint8_t spatial_shift = quantize_level + compactness_shift;
 
 
     auto t0 = Clock::now();
     ClusterPixel *cluster_pixels = new ClusterPixel[H * W];
     memset(cluster_pixels, -1, sizeof(ClusterPixel) * H * W); // 0xFFFF
 
-    #pragma omp parallel
     for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
         const Cluster cluster = clusters[cluster_idx];
         const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
         const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
 
-        #pragma omp parallel
         for (int16_t i = y_lo; i < y_hi; i++) {
+            #pragma GCC unroll 16
             for (int16_t j = x_lo; j < x_hi; j++) {
                 int32_t base_index = W * i + j;
                 int8_t last_index = cluster_pixels[base_index].last_index;
@@ -120,6 +118,9 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
 
     std::cerr << "ALLOC " << std::chrono::duration_cast<std::chrono::microseconds>(t01-t0).count() << "us \n";
     auto t1 = Clock::now();
+
+    uint8_t spatial_shift = quantize_level + compactness_shift;
+
     #pragma omp parallel for collapse(2)
     for (int16_t i = 0; i < H; i++) {
         for (int16_t j = 0; j < W; j++) {
@@ -129,19 +130,7 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
             const ClusterPixel *px = &cluster_pixels[base_index];
             uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
-
-            uint32_t vals[9] = {
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-                0xFFFFFFFF,
-            };
-            #pragma GCC unroll 9
+            uint32_t min_val = 0xFFFFFFFFF;
             for (int8_t k = 0; k <= px->last_index; k++) {
                 const Cluster *cluster = &clusters[px->cluster_nos[k]];
                 uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
@@ -149,19 +138,11 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
                 uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
                 uint16_t dist = color_dist + spatial_dist;
                 uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster->number;
-                vals[k] = assignment_val;
+                //vals[k] = assignment_val;
+                if (min_val > assignment_val)
+                    min_val = assignment_val;
             }
 
-            auto a0 = my_min(vals[0], vals[1]);
-            auto a1 = my_min(vals[2], vals[3]);
-            auto a2 = my_min(vals[4], vals[5]);
-            auto a3 = my_min(vals[6], vals[7]);
-            auto a4 = vals[8];
-
-            auto A = my_min(a0, a1);
-            auto B = my_min(a2, a3);
-
-            auto min_val = my_min(my_min(A, B), a4);
             assignment[base_index] = min_val;
         }
     }
