@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 #include <unordered_set>
+#include <cstring>
 
 #include "fast-slic.h"
 
@@ -33,52 +34,157 @@ static T fast_abs(T n)
     return n;
 }
 
+static void slic_assign_cluster_oriented(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
+    const int16_t S = (int16_t)sqrt(H * W / K);
+    std::fill_n(assignment, H * W, 0xFFFFFFFF);
+
+    uint8_t spatial_shift = quantize_level + compactness_shift;
+    // I found threads More than 3 don't help
+    #pragma omp parallel for num_threads(3)
+    for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
+        const Cluster cluster = clusters[cluster_idx];
+
+        const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
+        const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
+
+        for (int16_t i = y_lo; i < y_hi; i++) {
+            for (int16_t j = x_lo; j < x_hi; j++) {
+                int32_t base_index = W * i + j;
+                int32_t img_base_index = 3 * base_index;
+
+                uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
+
+                // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
+                // OPTIMIZATION 2: L1 norm instead of L2
+                // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
+                // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
+                // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
+                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster.r) + fast_abs<int16_t>(g - (int16_t)cluster.g) + fast_abs<int16_t>(b - (int16_t)cluster.b)) << quantize_level);
+
+                uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster.y) + fast_abs<int16_t>(j - (int16_t)cluster.x)) << spatial_shift) / S; 
+                uint16_t dist = color_dist + spatial_dist; // 🙏 pray to god there was no overflow error 🙏
+                uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster.number;
+
+                if (assignment[base_index] > assignment_val)
+                    assignment[base_index] = assignment_val;
+            }
+        }
+    }
+
+    // Clean up: Drop distance part in assignment and let only cluster numbers remain
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
+        }
+    }
+}
+
+struct ClusterPixel {
+    uint16_t cluster_nos[9];
+    int8_t last_index;
+};
+
+#include <iostream>
+#include <chrono>
+typedef std::chrono::high_resolution_clock Clock;
+
+static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
+    const int16_t S = (int16_t)sqrt(H * W / K);
+    std::fill_n(assignment, H * W, 0xFFFFFFFF);
+
+    uint8_t spatial_shift = quantize_level + compactness_shift;
+
+
+    auto t0 = Clock::now();
+    ClusterPixel *cluster_pixels = new ClusterPixel[H * W];
+    memset(cluster_pixels, -1, sizeof(ClusterPixel) * H * W); // 0xFFFF
+
+    #pragma omp parallel
+    for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
+        const Cluster cluster = clusters[cluster_idx];
+        const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
+        const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
+
+        #pragma omp parallel
+        for (int16_t i = y_lo; i < y_hi; i++) {
+            for (int16_t j = x_lo; j < x_hi; j++) {
+                int32_t base_index = W * i + j;
+                int8_t last_index = cluster_pixels[base_index].last_index;
+                if (last_index >= 8) continue;
+                cluster_pixels[base_index].cluster_nos[last_index + 1] = cluster_idx;
+                cluster_pixels[base_index].last_index = last_index + 1;
+            }
+        }
+    }
+    auto t01 = Clock::now();
+
+    std::cerr << "ALLOC " << std::chrono::duration_cast<std::chrono::microseconds>(t01-t0).count() << "us \n";
+    auto t1 = Clock::now();
+    #pragma omp parallel for collapse(2)
+    for (int16_t i = 0; i < H; i++) {
+        for (int16_t j = 0; j < W; j++) {
+            int32_t base_index = W * i + j;
+            int32_t img_base_index = 3 * base_index;
+
+            const ClusterPixel *px = &cluster_pixels[base_index];
+            uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
+
+
+            uint32_t vals[9] = {
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+                0xFFFFFFFF,
+            };
+            #pragma GCC unroll 9
+            for (int8_t k = 0; k <= px->last_index; k++) {
+                const Cluster *cluster = &clusters[px->cluster_nos[k]];
+                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+
+                uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
+                uint16_t dist = color_dist + spatial_dist;
+                uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster->number;
+                vals[k] = assignment_val;
+            }
+
+            auto a0 = my_min(vals[0], vals[1]);
+            auto a1 = my_min(vals[2], vals[3]);
+            auto a2 = my_min(vals[4], vals[5]);
+            auto a3 = my_min(vals[6], vals[7]);
+            auto a4 = vals[8];
+
+            auto A = my_min(a0, a1);
+            auto B = my_min(a2, a3);
+
+            auto min_val = my_min(my_min(A, B), a4);
+            assignment[base_index] = min_val;
+        }
+    }
+    auto t2 = Clock::now();
+    std::cerr << "ASS " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+
+    // Clean up: Drop distance part in assignment and let only cluster numbers remain
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
+        }
+    }
+
+    delete [] cluster_pixels;
+}
 
 extern "C" {
     void slic_assign(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
-        // Initialize
-        const int16_t S = (int16_t)sqrt(H * W / K);
-        std::fill_n(assignment, H * W, 0xFFFFFFFF);
-
-        uint8_t spatial_shift = quantize_level + compactness_shift;
-        // I found threads More than 3 don't help
-        #pragma omp parallel for num_threads(3)
-        for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
-            const Cluster cluster = clusters[cluster_idx];
-
-            const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
-            const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
-
-            for (int16_t i = y_lo; i < y_hi; i++) {
-                for (int16_t j = x_lo; j < x_hi; j++) {
-                    int32_t base_index = W * i + j;
-                    int32_t img_base_index = 3 * base_index;
-
-                    uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
-
-                    // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
-                    // OPTIMIZATION 2: L1 norm instead of L2
-                    // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
-                    // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
-                    // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-                    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster.r) + fast_abs<int16_t>(g - (int16_t)cluster.g) + fast_abs<int16_t>(b - (int16_t)cluster.b)) << quantize_level);
-
-                    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster.y) + fast_abs<int16_t>(j - (int16_t)cluster.x)) << spatial_shift) / S; 
-                    uint16_t dist = color_dist + spatial_dist; // 🙏 pray to god there was no overflow error 🙏
-                    uint32_t assignment_val = ((uint32_t)dist << 16) + (uint32_t)cluster.number;
-
-                    if (assignment[base_index] > assignment_val)
-                        assignment[base_index] = assignment_val;
-                }
-            }
-        }
-
-        // Clean up: Drop distance part in assignment and let only cluster numbers remain
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
-            }
-        }
+        auto t1 = Clock::now();
+        // slic_assign_cluster_oriented(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
+        slic_assign_pixel_oriented(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
+        auto t2 = Clock::now();
+        std::cerr << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
     }
 
     void slic_update_clusters(int H, int W, int K, const uint8_t* image, Cluster* clusters, const uint32_t* assignment) {
