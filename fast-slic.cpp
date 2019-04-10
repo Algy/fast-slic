@@ -34,7 +34,52 @@ static T fast_abs(T n)
     return n;
 }
 
-static void slic_assign_cluster_oriented(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
+template <typename T>
+static T ceil_int(T numer, T denom) {
+    return (numer + denom - 1) / denom;
+}
+
+struct ClusterPixel {
+    uint16_t cluster_nos[9];
+    int8_t last_index;
+};
+
+
+struct Context {
+    const uint8_t* image;
+    const char* algorithm;
+    int H;
+    int W;
+    int K;
+    uint8_t compactness_shift;
+    uint8_t quantize_level;
+    Cluster* clusters;
+    uint32_t* assignment;
+    ClusterPixel *cluster_boxes;
+    ClusterPixel *cluster_pixels;
+};
+
+static void init_context(Context *context) {
+    memset(context, 0, sizeof(Context));
+}
+
+static void free_context(Context *context) {
+    if (context->cluster_boxes)
+        delete [] context->cluster_boxes;
+    if (context->cluster_pixels)
+        delete [] context->cluster_pixels;
+}
+
+static void slic_assign_cluster_oriented(Context *context) {
+    auto H = context->H;
+    auto W = context->W;
+    auto K = context->K;
+    auto compactness_shift = context->compactness_shift;
+    auto clusters = context->clusters;
+    auto image = context->image;
+    auto assignment = context->assignment;
+    auto quantize_level = context->quantize_level;
+
     const int16_t S = (int16_t)sqrt(H * W / K);
     std::fill_n(assignment, H * W, 0xFFFFFFFF);
 
@@ -79,41 +124,91 @@ static void slic_assign_cluster_oriented(int H, int W, int K, uint8_t compactnes
     }
 }
 
-struct ClusterPixel {
-    uint16_t cluster_nos[9];
-    int8_t last_index;
-};
-
 #include <iostream>
 #include <chrono>
 typedef std::chrono::high_resolution_clock Clock;
+static void slic_assign_pixel_oriented(Context* context) {
+    auto H = context->H;
+    auto W = context->W;
+    auto K = context->K;
+    auto compactness_shift = context->compactness_shift;
+    auto clusters = context->clusters;
+    auto image = context->image;
+    auto assignment = context->assignment;
+    auto quantize_level = context->quantize_level;
 
-static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
     const int16_t S = (int16_t)sqrt(H * W / K);
-    std::fill_n(assignment, H * W, 0xFFFFFFFF);
 
+    // left, right, top, bottom borders are included
+    int box_H = ceil_int(H, (int)S) + 2;
+    int box_W = ceil_int(W, (int)S) + 2;
 
+    if (!context->cluster_boxes) {
+        context->cluster_boxes = new ClusterPixel[box_H * box_W];
+    }
 
-    auto t0 = Clock::now();
-    ClusterPixel *cluster_pixels = new ClusterPixel[H * W];
-    memset(cluster_pixels, -1, sizeof(ClusterPixel) * H * W); // 0xFFFF
+    if (!context->cluster_pixels) {
+        context->cluster_pixels = new ClusterPixel[H * W];
+    }
 
-    for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
-        const Cluster cluster = clusters[cluster_idx];
-        const int16_t y_lo = my_max<int16_t>(0, cluster.y - S), y_hi = my_min<int16_t>(H, cluster.y + S);
-        const int16_t x_lo = my_max<int16_t>(0, cluster.x - S), x_hi = my_min<int16_t>(W, cluster.x + S);
+    ClusterPixel* cluster_boxes = context->cluster_boxes;
+    ClusterPixel* cluster_pixels = context->cluster_pixels;
 
-        for (int16_t i = y_lo; i < y_hi; i++) {
-            #pragma GCC unroll 16
-            for (int16_t j = x_lo; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
-                int8_t last_index = cluster_pixels[base_index].last_index;
-                if (last_index >= 8) continue;
-                cluster_pixels[base_index].cluster_nos[last_index + 1] = cluster_idx;
-                cluster_pixels[base_index].last_index = last_index + 1;
-            }
+    for (int i = 0; i < box_H; i++) {
+        for (int j = 0; j < box_W; j++) {
+            cluster_boxes[i * box_W + j].last_index = -1;
         }
     }
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            cluster_pixels[i * W + j].last_index = -1;
+        }
+    }
+
+    auto t0 = Clock::now();
+
+    for (int cluster_idx = 0; cluster_idx < K; cluster_idx++) {
+        int32_t base_index = box_W * (clusters[cluster_idx].y / S + 1) + (clusters[cluster_idx].x / S + 1);
+        std::cerr << base_index << std::endl;
+        int8_t last_index = cluster_boxes[base_index].last_index;
+        if (last_index >= 8) continue;
+        cluster_boxes[base_index].cluster_nos[last_index + 1] = cluster_idx;
+        cluster_boxes[base_index].last_index = last_index + 1;
+    }
+
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            ClusterPixel *px = &cluster_pixels[i * W + j];
+
+            int center_box_i = i / S + 1;
+            int center_box_j = j / S + 1;
+
+            #pragma GCC unroll(9)
+            for (int8_t r = 0; r < 9; r++) {
+                int di = r / 3 - 1, dj = r % 3 - 1;
+                // [di, dj] = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+
+                int box_i = center_box_i + di, box_j = center_box_j + dj;
+                const ClusterPixel *box = &cluster_boxes[box_i * box_W + box_j];
+                for (int8_t k = 0; k <= box->last_index; k++) {
+                    uint16_t cluster_no = box->cluster_nos[k];
+                    const Cluster *cluster = &clusters[cluster_no];
+                    if (cluster->y - S <= i && i < cluster->y + S && cluster->x - S <= j && j < cluster->x + S) {
+                        if (px->last_index >= 8) {
+                            goto PX_FULL;
+                        }
+                        px->cluster_nos[++px->last_index] = cluster_no;
+                    }
+                }
+            }
+PX_FULL:;
+        }
+    }
+
     auto t01 = Clock::now();
 
     std::cerr << "ALLOC " << std::chrono::duration_cast<std::chrono::microseconds>(t01-t0).count() << "us \n";
@@ -130,7 +225,7 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
             const ClusterPixel *px = &cluster_pixels[base_index];
             uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
-            uint32_t min_val = 0xFFFFFFFFF;
+            uint32_t min_val = 0xFFFFFFFF;
             for (int8_t k = 0; k <= px->last_index; k++) {
                 const Cluster *cluster = &clusters[px->cluster_nos[k]];
                 uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
@@ -143,71 +238,77 @@ static void slic_assign_pixel_oriented(int H, int W, int K, uint8_t compactness_
                     min_val = assignment_val;
             }
 
-            assignment[base_index] = min_val;
+            // Drop distance part in assignment and let only cluster numbers remain
+            assignment[base_index] = min_val & 0x0000FFFF;
         }
     }
+
     auto t2 = Clock::now();
+
     std::cerr << "ASS " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-
-    // Clean up: Drop distance part in assignment and let only cluster numbers remain
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
-        }
-    }
-
-    delete [] cluster_pixels;
 }
 
+static void slic_assign(Context *context) {
+    auto t1 = Clock::now();
+    if (!strcmp(context->algorithm, "cluster_oriented")) {
+        slic_assign_cluster_oriented(context);
+    } else if (!strcmp(context->algorithm, "pixel_oriented")) {
+        slic_assign_pixel_oriented(context);
+    }
+    auto t2 = Clock::now();
+    std::cerr << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+}
+
+static void slic_update_clusters(Context *context) {
+    auto H = context->H;
+    auto W = context->W;
+    auto K = context->K;
+    auto image = context->image;
+    auto clusters = context->clusters;
+    auto assignment = context->assignment;
+
+    int num_cluster_members[K];
+    int cluster_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
+
+    std::fill_n(num_cluster_members, K, 0);
+    std::fill_n((int *)cluster_acc_vec, K * 5, 0);
+
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            int base_index = W * i + j;
+            int img_base_index = 3 * base_index;
+
+            cluster_no_t cluster_no = (cluster_no_t)assignment[base_index];
+            if (cluster_no == 0xFFFF) continue;
+            num_cluster_members[cluster_no]++;
+            cluster_acc_vec[cluster_no][0] += i;
+            cluster_acc_vec[cluster_no][1] += j;
+            cluster_acc_vec[cluster_no][2] += image[img_base_index];
+            cluster_acc_vec[cluster_no][3] += image[img_base_index + 1];
+            cluster_acc_vec[cluster_no][4] += image[img_base_index + 2];
+        }
+    }
+
+
+    for (int k = 0; k < K; k++) {
+        int num_current_members = num_cluster_members[k];
+        Cluster *cluster = &clusters[k];
+        cluster->num_members = num_current_members;
+
+        if (num_current_members == 0) continue;
+
+        // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
+        // But, I intentionally used mean here for the sake of performance.
+        cluster->y = cluster_acc_vec[k][0] / num_current_members;
+        cluster->x = cluster_acc_vec[k][1] / num_current_members;
+        cluster->r = cluster_acc_vec[k][2] / num_current_members;
+        cluster->g = cluster_acc_vec[k][3] / num_current_members;
+        cluster->b = cluster_acc_vec[k][4] / num_current_members;
+    }
+}
+
+
 extern "C" {
-    void slic_assign(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, const uint8_t* image, const Cluster* clusters, uint32_t* assignment) {
-        auto t1 = Clock::now();
-        // slic_assign_cluster_oriented(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
-        slic_assign_pixel_oriented(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
-        auto t2 = Clock::now();
-        std::cerr << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-    }
-
-    void slic_update_clusters(int H, int W, int K, const uint8_t* image, Cluster* clusters, const uint32_t* assignment) {
-        int num_cluster_members[K];
-        int cluster_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
-
-        std::fill_n(num_cluster_members, K, 0);
-        std::fill_n((int *)cluster_acc_vec, K * 5, 0);
-
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                int base_index = W * i + j;
-                int img_base_index = 3 * base_index;
-
-                cluster_no_t cluster_no = (cluster_no_t)assignment[base_index];
-                if (cluster_no == 0xFFFF) continue;
-                num_cluster_members[cluster_no]++;
-                cluster_acc_vec[cluster_no][0] += i;
-                cluster_acc_vec[cluster_no][1] += j;
-                cluster_acc_vec[cluster_no][2] += image[img_base_index];
-                cluster_acc_vec[cluster_no][3] += image[img_base_index + 1];
-                cluster_acc_vec[cluster_no][4] += image[img_base_index + 2];
-            }
-        }
-
-
-        for (int k = 0; k < K; k++) {
-            int num_current_members = num_cluster_members[k];
-            Cluster *cluster = &clusters[k];
-            cluster->num_members = num_current_members;
-
-            if (num_current_members == 0) continue;
-
-            // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
-            // But, I intentionally used mean here for the sake of performance.
-            cluster->y = cluster_acc_vec[k][0] / num_current_members;
-            cluster->x = cluster_acc_vec[k][1] / num_current_members;
-            cluster->r = cluster_acc_vec[k][2] / num_current_members;
-            cluster->g = cluster_acc_vec[k][3] / num_current_members;
-            cluster->b = cluster_acc_vec[k][4] / num_current_members;
-        }
-    }
 
     void slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
         const int S = (int)sqrt(H * W / K);
@@ -350,11 +451,26 @@ extern "C" {
     }
 
     void do_slic(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
+
+        Context context;
+        init_context(&context);
+        context.image = image;
+        context.algorithm = "pixel_oriented";
+        context.H = H;
+        context.W = W;
+        context.K = K;
+        context.compactness_shift = compactness_shift;
+        context.quantize_level = quantize_level;
+        context.clusters = clusters;
+        context.assignment = assignment;
+
         for (int i = 0; i < max_iter; i++) {
-            slic_assign(H, W, K, compactness_shift, quantize_level, image, clusters, assignment);
-            slic_update_clusters(H, W, K, image, clusters, assignment);
+            slic_assign(&context);
+            slic_update_clusters(&context);
         }
         slic_enforce_connectivity(H, W, K, clusters, assignment);
+
+        free_context(&context);
     }
 }
 
