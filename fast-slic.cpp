@@ -186,47 +186,44 @@ static void slic_assign_pixel_oriented(Context* context) {
     uint8_t spatial_shift = quantize_level + compactness_shift;
 
     #pragma omp parallel for
-    for (int si = 0; si < H; si += S) {
-        int ei = my_min(si + S, H);
-        int center_box_i = si / S + 1;
-        for (int i = si; i < ei; i++) {
-            for (int sj = 0; sj < W; sj += S) {
-                int ej = my_min(sj + S, W);
-                int center_box_j = sj / S + 1;
+    for (int i = 0; i < H; i++) {
+        int center_box_i = i / S + 1;
+        for (int sj = 0; sj < W; sj += S) {
+            int ej = my_min(sj + S, W);
+            int center_box_j = sj / S + 1;
 
-                const ClusterPixel *box = &cluster_boxes[center_box_i * box_W + center_box_j];
-                const ClusterPixel *boxes[9] = {
-                    box - box_W - 1, box - box_W, box - box_W + 1,
-                    box - 1, box, box + 1,
-                    box + box_W - 1, box + box_W, box + box_W + 1
+            const ClusterPixel *box = &cluster_boxes[center_box_i * box_W + center_box_j];
+            const ClusterPixel *boxes[9] = {
+                box - box_W - 1, box - box_W, box - box_W + 1,
+                box - 1, box, box + 1,
+                box + box_W - 1, box + box_W, box + box_W + 1
+            };
+            for (int j = sj; j < ej; j++) {
+                int32_t base_index = W * i + j;
+                int32_t img_base_index = 3 * base_index;
+                uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
+
+                // Horable :(
+                uint32_t assignment_vals[9] = {
+                    get_assignment_box_val(boxes[0],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[1],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[2],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[3],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[4],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[5],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[6] ,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[7],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
+                    get_assignment_box_val(boxes[8],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
                 };
-                for (int j = sj; j < ej; j++) {
-                    int32_t base_index = W * i + j;
-                    int32_t img_base_index = 3 * base_index;
-                    uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
-                    // Horable :(
-                    uint32_t assignment_vals[9] = {
-                        get_assignment_box_val(boxes[0],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[1],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[2],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[3],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[4],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[5],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[6] ,  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[7],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                        get_assignment_box_val(boxes[8],  S, i, j, r, g, b, clusters, quantize_level, spatial_shift),
-                    };
-
-                    uint32_t min_val = 0xFFFFFFFF;
-                    #pragma GCC unroll 9
-                    for (int dest = 0; dest < 9; dest++) {
-                        if (min_val > assignment_vals[dest])
-                            min_val = assignment_vals[dest];
-                    }
-                    // Drop distance part in assignment and let only cluster numbers remain
-                    assignment[base_index] = min_val & 0x0000FFFF;
+                uint32_t min_val = 0xFFFFFFFF;
+                #pragma GCC unroll 9
+                for (int dest = 0; dest < 9; dest++) {
+                    if (min_val > assignment_vals[dest])
+                        min_val = assignment_vals[dest];
                 }
+                // Drop distance part in assignment and let only cluster numbers remain
+                assignment[base_index] = min_val & 0x0000FFFF;
             }
         }
     }
