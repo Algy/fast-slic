@@ -8,9 +8,43 @@ from setuptools.command.build_ext import build_ext as _build_ext
 from distutils.core import setup
 from distutils.extension import Extension
 
+
+
+def _check_openmp():
+    import os, tempfile, subprocess, shutil    
+
+    # see http://openmp.org/wp/openmp-compilers/
+    omp_test = \
+        r"""
+#include <omp.h>
+#include <stdio.h>
+    int main() {
+#pragma omp parallel
+    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
+    }
+        """
+    tmpdir = tempfile.mkdtemp()
+    curdir = os.getcwd()
+    os.chdir(tmpdir)
+    filename = r'test.c'
+    with open(filename, 'w') as file:
+        file.write(omp_test)
+    with open(os.devnull, 'w') as fnull:
+        result = subprocess.call([os.environ.get("CC") or 'cc', '-fopenmp', filename],
+                                 stdout=fnull, stderr=fnull)
+    os.chdir(curdir)
+    #clean up
+    shutil.rmtree(tmpdir)
+
+    return result == 0
+
+
 extra_compile_args = []
 if platform.system() != 'Windows':
-    extra_compile_args += ['-std=c++11']
+    extra_compile_args.append('-std=c++11')
+    if _check_openmp():
+        extra_compile_args.append('-fopenmp')
+
 
 class build_ext(_build_ext):
     def finalize_options(self):
@@ -25,7 +59,7 @@ class build_ext(_build_ext):
 
 setup(
     name="fast-slic",
-    version="0.1.1",
+    version="0.1.2",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
