@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-#from setuptools import dist
-#dist.Distribution().fetch_build_eggs(['cython', 'numpy'])
+from setuptools import dist
+dist.Distribution().fetch_build_eggs(['cython', 'numpy'])
 
 import os
 import platform
@@ -52,7 +52,7 @@ if platform.system() != 'Windows':
 
 setup(
     name="fast-slic",
-    version="0.1.5",
+    version="0.1.6",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
