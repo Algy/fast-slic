@@ -36,7 +36,7 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 | skimage.segment.slic                            | 216ms          |
 | cv2.ximgproc.createSuperpixelSLIC.iterate       | 142ms          |
 | fast_slic(single core build)                    | 58ms           |
-| fast_slic(w/ OpenMP supports, default in GCC)   | **36ms**       |
+| fast_slic(w/ OpenMP supports, default in GCC)   | **20ms**       |
 
  
 (RGB-to-CIELAB conversion time is not included. Tested with Ryzen 2600x 4.0Hz O.C.)
