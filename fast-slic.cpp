@@ -290,14 +290,18 @@ static void slic_update_clusters(Context *context) {
 extern "C" {
 
     void slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
-        const int S = (int)sqrt(H * W / K);
 
         int *gradients = new int[H * W];
 
+        int num_sep = my_max(1, (int)sqrt((double)K));
+
+        int h = H / num_sep;
+        int w = W / num_sep;
+
         // compute gradients
         std::fill_n(gradients, H * W, 1 << 21);
-        for (int i = 1; i < H; i += S) {
-            for (int j = 1; j < W; j += S) {
+        for (int i = 1; i < H; i += h) {
+            for (int j = 1; j < W; j += w) {
                 int base_index = i * W + j;
                 int img_base_index = 3 * base_index;
                 int dx = 
@@ -313,12 +317,12 @@ extern "C" {
         }
 
         int acc_k = 0;
-        for (int i = 0; i < H; i += S) {
-            for (int j = 0; j < W; j += S) {
+        for (int i = 0; i < H; i += h) {
+            for (int j = 0; j < W; j += w) {
                 if (acc_k >= K) break;
 
-                int eh = my_min<int>(i + S, H - 1), ew = my_min<int>(j + S, W - 1);
-                int center_y = i + S / 2, center_x = j + S / 2;
+                int eh = my_min<int>(i + h, H - 1), ew = my_min<int>(j + w, W - 1);
+                int center_y = i + h / 2, center_x = j + w / 2;
                 int min_gradient = 1 << 21;
                 for (int ty = i; ty < eh; ty++) {
                     for (int tx = j; tx < ew; tx++) {
