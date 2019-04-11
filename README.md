@@ -41,9 +41,11 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
  
 (RGB-to-CIELAB conversion time is not included. Tested with Ryzen 2600x 4.0Hz O.C.)
 
-## TODO
+## Known Issues
+ * If you give too large value of `compactness_shift`, score variables overflow and you get an artistic painting of diamond shaped boxes rather than superpixels you want.
 
- - [ ] Reduce coarseness
+## TODO
  - [ ] Remove or merge small blobs
  - [ ] Include simple CRF utilities
  - [ ] More scalable parallel loop in cluster assignment. I suspect there is false sharing problem in the loop.
+ - [ ] would be great if I can optimize loop more. SIMD?
