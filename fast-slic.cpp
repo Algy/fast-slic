@@ -90,19 +90,6 @@ uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
 }
 
 
-static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, uint8_t g, uint8_t b, const Cluster* cluster, uint8_t quantize_level, uint8_t spatial_shift) {
-    // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
-    // OPTIMIZATION 2: L1 norm instead of L2
-    // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
-    // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
-    // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
-
-    uint16_t spatial_dist = ((uint32_t)(fast_abs<int16_t>(i - (int16_t)cluster->y) + fast_abs<int16_t>(j - (int16_t)cluster->x)) << spatial_shift) / S; 
-    uint16_t dist = color_dist + spatial_dist;
-    return ((uint32_t)dist << 16) + (uint32_t)cluster->number;
-}
-
 static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
     // return ((uint64_t)(y / (2 * S)) << 48) + ((uint64_t)(x / (2 * S)) << 32) + (uint32_t)calc_z_order(y, x);
     return calc_z_order(y, x);
@@ -141,37 +128,90 @@ static void slic_assign_cluster_oriented(Context *context) {
     });
     auto t1 = Clock::now();
 
+    uint16_t spatial_normalize_cache[2 * S + 1]; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) / S)
+    for (int x = 0; x <= 2 * S; x++) {
+        spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x << spatial_shift) / S);
+    }
+
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
-        const int16_t y_lo = my_max<int16_t>(0, cluster->y - S), y_hi = my_min<int16_t>(H, cluster->y + S);
-        const int16_t x_lo = my_max<int16_t>(0, cluster->x - S), x_hi = my_min<int16_t>(W, cluster->x + S);
+        int16_t cluster_y = cluster->y;
+        int16_t cluster_x = cluster->x;
+        const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S);
+        const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S);
         
-        uint32_t* local_buffer = new uint32_t[(y_hi - y_lo) * (x_hi - x_lo)];
-        for (int16_t i = y_lo; i < y_hi; i++) {
-            for (int16_t j = x_lo; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
-                int32_t img_base_index = 3 * base_index;
+        const int16_t local_buffer_width = x_hi - x_lo;
+        const int16_t local_buffer_height = y_hi - y_lo;
+        uint16_t* local_buffer = new uint16_t[local_buffer_height * local_buffer_width];
 
+        // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
+        // OPTIMIZATION 2: L1 norm instead of L2
+        // OPTIMIZATION 3: L1 normalizer(x / 3) ommitted in the color distance term
+        // OPTIMIZATION 4: L1 normalizer(x / 2) ommitted in the spatial distance term
+        // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
+        // OPTIMIZATION 6: Make computations of L1 distance SIMD-friendly
+
+        // Calculate Spatial Distances (not quantized or normalized yet)
+        // 4 3 2 3 4
+        // 3 2 1 2 3
+        // 2 1 0 1 2
+        // 3 2 1 2 3
+        // 4 3 2 3 4
+        // Build the first row
+        {
+            uint16_t first_row_value = (cluster_y - y_lo) + (cluster_x - x_lo);
+            for (int16_t t = 0; t <= (cluster_x - x_lo); t++) {
+                local_buffer[t] = first_row_value--;
+            }
+            first_row_value++; // recover value that decreased by 1 one more
+            for (int16_t t = (cluster_x - x_lo) + 1; t < local_buffer_width; t++) {
+                local_buffer[t] = ++first_row_value;
+            }
+        }
+
+        // Fill in values up to half rows
+        for (int16_t bi = 1; bi <= (cluster_y - y_lo); bi++) {
+            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
+                local_buffer[local_buffer_width * bi + bj] = local_buffer[local_buffer_width * (bi - 1) + bj] - 1;
+            }
+        }
+
+        // Fill in other half rows
+        for (int16_t bi = (cluster_y - y_lo) + 1; bi < local_buffer_height; bi++) {
+            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
+                local_buffer[local_buffer_width * bi + bj] = local_buffer[local_buffer_width * (bi - 1) + bj] + 1;
+            }
+        }
+
+        // quantize and normalize
+        for (int16_t bi = 0; bi < local_buffer_height; bi++) {
+            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
+                local_buffer[local_buffer_width * bi + bj] = spatial_normalize_cache[local_buffer[local_buffer_width * bi + bj]];
+            }
+        }
+
+        // spatial distances are done in local_buffer
+        // Now, add color distances
+        for (int16_t bi = 0; bi < local_buffer_height; bi++) {
+            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
+                int16_t i = bi + y_lo, j = bj + x_lo;
+                int32_t img_base_index = 3 * (W * i + j);
                 uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
+                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+                local_buffer[local_buffer_width * bi + bj] += color_dist;
+            }
+        }
 
-                uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
-                /*
+        for (int16_t bi = 0; bi < local_buffer_height; bi++) {
+            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
+                int16_t i = bi + y_lo, j = bj + x_lo;
+                int32_t base_index = W * i + j;
+                uint32_t assignment_val = ((uint32_t)local_buffer[local_buffer_width * bi + bj] << 16) + (uint32_t)cluster->number;
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
-                */
-                local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo] = assignment_val;
             }
         }
-
-        for (int16_t i = y_lo; i < y_hi; i++) {
-            for (int16_t j = x_lo; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
-                if (assignment[base_index] > local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo])
-                    assignment[base_index] = local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo];
-            }
-        }
-
         delete [] local_buffer;
     }
     auto t2 = Clock::now();
