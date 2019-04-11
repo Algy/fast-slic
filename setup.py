@@ -59,7 +59,7 @@ class build_ext(_build_ext):
 
 setup(
     name="fast-slic",
-    version="0.1.2",
+    version="0.1.3",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
