@@ -103,6 +103,12 @@ static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, ui
     return ((uint32_t)dist << 16) + (uint32_t)cluster->number;
 }
 
+static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
+    return (uint32_t)calc_z_order(y, x);
+    // return ((uint64_t)(y / (2 * S)) << 48) + ((uint64_t)(x / (2 * S)) << 32) + (uint32_t)calc_z_order(y, x);
+    // return calc_z_order(y, x);
+}
+
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
@@ -121,11 +127,12 @@ static void slic_assign_cluster_oriented(Context *context) {
      // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
     std::vector<const Cluster *> cluster_sorted_ptrs;
     for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
-    std::sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), [](const Cluster *lhs, const Cluster *rhs) {
-        return calc_z_order(lhs->y, lhs->x) < calc_z_order(rhs->y, rhs->x);
+
+    std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), [S](const Cluster *lhs, const Cluster *rhs) {
+        return get_sort_value(lhs->y, lhs->x, S) < get_sort_value(rhs->y, rhs->x, S);
     });
 
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
 
