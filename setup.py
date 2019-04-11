@@ -33,7 +33,7 @@ def _check_openmp():
     with open(filename, 'w') as file:
         file.write(omp_test)
     with open(os.devnull, 'w') as fnull:
-        result = subprocess.call([os.environ.get("CC") or 'cc', '-fopenmp', filename],
+        result = subprocess.call([os.environ.get("CC") or 'cc', '-fopenmp', '-lgomp', filename],
                                  stdout=fnull, stderr=fnull)
     os.chdir(curdir)
     #clean up
@@ -43,14 +43,16 @@ def _check_openmp():
 
 
 extra_compile_args = []
+extra_link_args = ["-lstdc++"]
 if platform.system() != 'Windows':
     if _check_openmp():
         extra_compile_args.append('-fopenmp')
+        extra_link_args.append('-lgomp')
 
 
 setup(
     name="fast-slic",
-    version="0.1.4",
+    version="0.1.5",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
@@ -74,6 +76,7 @@ setup(
                 include_dirs=[np.get_include()],
                 sources=["fast-slic.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
                 language='c++11',
             ),
         ]
