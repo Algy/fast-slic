@@ -106,6 +106,7 @@ static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, ui
 static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
     // return ((uint64_t)(y / (2 * S)) << 48) + ((uint64_t)(x / (2 * S)) << 32) + (uint32_t)calc_z_order(y, x);
     return calc_z_order(y, x);
+    // return y + x;
 }
 
 
@@ -145,7 +146,8 @@ static void slic_assign_cluster_oriented(Context *context) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
         const int16_t y_lo = my_max<int16_t>(0, cluster->y - S), y_hi = my_min<int16_t>(H, cluster->y + S);
         const int16_t x_lo = my_max<int16_t>(0, cluster->x - S), x_hi = my_min<int16_t>(W, cluster->x + S);
-
+        
+        uint32_t* local_buffer = new uint32_t[(y_hi - y_lo) * (x_hi - x_lo)];
         for (int16_t i = y_lo; i < y_hi; i++) {
             for (int16_t j = x_lo; j < x_hi; j++) {
                 int32_t base_index = W * i + j;
@@ -154,14 +156,27 @@ static void slic_assign_cluster_oriented(Context *context) {
                 uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
 
                 uint32_t assignment_val = get_assignment_val(S, i, j, r, g, b, cluster, quantize_level, spatial_shift);
+                /*
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
+                */
+                local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo] = assignment_val;
             }
         }
+
+        for (int16_t i = y_lo; i < y_hi; i++) {
+            for (int16_t j = x_lo; j < x_hi; j++) {
+                int32_t base_index = W * i + j;
+                if (assignment[base_index] > local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo])
+                    assignment[base_index] = local_buffer[(x_hi - x_lo) * (i - y_lo) + j - x_lo];
+            }
+        }
+
+        delete [] local_buffer;
     }
     auto t2 = Clock::now();
 
-    // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 }
 
@@ -408,8 +423,8 @@ extern "C" {
             auto t2 = Clock::now();
             slic_update_clusters(&context);
             auto t3 = Clock::now();
-            // std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
         // Clean up: Drop distance part in assignment and let only cluster numbers remain
@@ -419,7 +434,12 @@ extern "C" {
                 assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
             }
         }
+        auto t1 = Clock::now();
         slic_enforce_connectivity(H, W, K, clusters, assignment);
+        auto t2 = Clock::now();
+
+        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+
 
         free_context(&context);
     }
