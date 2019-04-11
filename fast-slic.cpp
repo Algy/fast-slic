@@ -109,6 +109,14 @@ static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
     // return calc_z_order(y, x);
 }
 
+
+#include <string>
+#include <chrono>
+#include <fstream>
+#include <memory>
+#include <iostream>
+typedef std::chrono::high_resolution_clock Clock;
+
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
@@ -181,19 +189,34 @@ static void slic_update_clusters(Context *context) {
     std::fill_n(num_cluster_members, K, 0);
     std::fill_n((int *)cluster_acc_vec, K * 5, 0);
 
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            int base_index = W * i + j;
-            int img_base_index = 3 * base_index;
+    #pragma omp parallel
+    {
+        int local_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
+        std::fill_n((int*)local_acc_vec, K * 5, 0);
+        #pragma omp for collapse(2)
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                int base_index = W * i + j;
+                int img_base_index = 3 * base_index;
 
-            cluster_no_t cluster_no = (cluster_no_t)assignment[base_index];
-            if (cluster_no == 0xFFFF) continue;
-            num_cluster_members[cluster_no]++;
-            cluster_acc_vec[cluster_no][0] += i;
-            cluster_acc_vec[cluster_no][1] += j;
-            cluster_acc_vec[cluster_no][2] += image[img_base_index];
-            cluster_acc_vec[cluster_no][3] += image[img_base_index + 1];
-            cluster_acc_vec[cluster_no][4] += image[img_base_index + 2];
+                cluster_no_t cluster_no = (cluster_no_t)assignment[base_index];
+                if (cluster_no == 0xFFFF) continue;
+                num_cluster_members[cluster_no]++;
+                local_acc_vec[cluster_no][0] += i;
+                local_acc_vec[cluster_no][1] += j;
+                local_acc_vec[cluster_no][2] += image[img_base_index];
+                local_acc_vec[cluster_no][3] += image[img_base_index + 1];
+                local_acc_vec[cluster_no][4] += image[img_base_index + 2];
+            }
+        }
+
+        #pragma omp critical
+        {
+            for (int k = 0; k < K; k++) {
+                for (int dim = 0; dim < 5; dim++) {
+                    cluster_acc_vec[k][dim] += local_acc_vec[k][dim];
+                }
+            }
         }
     }
 
@@ -377,8 +400,13 @@ extern "C" {
         context.assignment = assignment;
 
         for (int i = 0; i < max_iter; i++) {
+            auto t1 = Clock::now();
             slic_assign(&context);
+            auto t2 = Clock::now();
             slic_update_clusters(&context);
+            auto t3 = Clock::now();
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
         slic_enforce_connectivity(H, W, K, clusters, assignment);
 
