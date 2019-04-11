@@ -108,6 +108,13 @@ static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
 #include <iostream>
 typedef std::chrono::high_resolution_clock Clock;
 
+static inline uint32_t get_assignment_value(const Cluster* cluster, const uint8_t* image, int32_t base_index, uint16_t spatial_dist, uint8_t quantize_level) {
+    int32_t img_base_index = 3 * base_index;
+    uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
+    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
+    return ((uint32_t)(color_dist + spatial_dist) << 16) + (uint32_t)cluster->number;
+}
+
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
@@ -154,13 +161,11 @@ static void slic_assign_cluster_oriented(Context *context) {
         // spatial distances are done in local_buffer
         // Now, add color distances
         for (int16_t i = y_lo; i < y_hi; i++) {
+            #pragma GCC unroll 2
             for (int16_t j = x_lo; j < x_hi; j++) {
                 int32_t base_index = W * i + j;
-                int32_t img_base_index = 3 * base_index;
-                uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
-                uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
                 uint16_t spatial_dist = spatial_normalize_cache[fast_abs<int16_t>(i - cluster_y) + fast_abs<int16_t>(j - cluster_x)];
-                uint32_t assignment_val = ((uint32_t)(color_dist + spatial_dist) << 16) + (uint32_t)cluster->number;
+                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
             }
