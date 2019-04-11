@@ -1,5 +1,4 @@
 # cython: language_level=3, boundscheck=False
-# distutils: sources = fast-slic.cpp
 
 cimport cfast_slic 
 cimport numpy as np
