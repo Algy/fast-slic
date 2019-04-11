@@ -161,10 +161,18 @@ static void slic_assign_cluster_oriented(Context *context) {
         // spatial distances are done in local_buffer
         // Now, add color distances
         for (int16_t i = y_lo; i < y_hi; i++) {
-            #pragma GCC unroll 2
-            for (int16_t j = x_lo; j < x_hi; j++) {
+            int16_t current_manhattan = fast_abs<int16_t>(i - cluster_y) + (cluster_x - x_lo);
+            for (int16_t j = x_lo; j < cluster_x; j++) {
                 int32_t base_index = W * i + j;
-                uint16_t spatial_dist = spatial_normalize_cache[fast_abs<int16_t>(i - cluster_y) + fast_abs<int16_t>(j - cluster_x)];
+                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
+                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
+                if (assignment[base_index] > assignment_val)
+                    assignment[base_index] = assignment_val;
+            }
+
+            for (int16_t j = cluster_x; j < x_hi; j++) {
+                int32_t base_index = W * i + j;
+                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
                 uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
