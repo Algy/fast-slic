@@ -104,9 +104,8 @@ static inline uint32_t get_assignment_val(int16_t S, int i, int j, uint8_t r, ui
 }
 
 static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
-    return (uint32_t)calc_z_order(y, x);
     // return ((uint64_t)(y / (2 * S)) << 48) + ((uint64_t)(x / (2 * S)) << 32) + (uint32_t)calc_z_order(y, x);
-    // return calc_z_order(y, x);
+    return calc_z_order(y, x);
 }
 
 
@@ -128,7 +127,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto quantize_level = context->quantize_level;
 
     const int16_t S = (int16_t)sqrt(H * W / K);
-    std::fill_n(assignment, H * W, 0xFFFFFFFF);
+
 
     uint8_t spatial_shift = quantize_level + compactness_shift;
 
@@ -139,11 +138,11 @@ static void slic_assign_cluster_oriented(Context *context) {
     std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), [S](const Cluster *lhs, const Cluster *rhs) {
         return get_sort_value(lhs->y, lhs->x, S) < get_sort_value(rhs->y, rhs->x, S);
     });
+    auto t1 = Clock::now();
 
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
-
         const int16_t y_lo = my_max<int16_t>(0, cluster->y - S), y_hi = my_min<int16_t>(H, cluster->y + S);
         const int16_t x_lo = my_max<int16_t>(0, cluster->x - S), x_hi = my_min<int16_t>(W, cluster->x + S);
 
@@ -160,13 +159,10 @@ static void slic_assign_cluster_oriented(Context *context) {
             }
         }
     }
+    auto t2 = Clock::now();
 
-    // Clean up: Drop distance part in assignment and let only cluster numbers remain
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
-        }
-    }
+    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+
 }
 
 static void slic_assign(Context *context) {
@@ -199,7 +195,7 @@ static void slic_update_clusters(Context *context) {
                 int base_index = W * i + j;
                 int img_base_index = 3 * base_index;
 
-                cluster_no_t cluster_no = (cluster_no_t)assignment[base_index];
+                cluster_no_t cluster_no = (cluster_no_t)(0xFFFFFFFF & assignment[base_index]);
                 if (cluster_no == 0xFFFF) continue;
                 num_cluster_members[cluster_no]++;
                 local_acc_vec[cluster_no][0] += i;
@@ -399,6 +395,13 @@ extern "C" {
         context.clusters = clusters;
         context.assignment = assignment;
 
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                assignment[i * W + j] =  0xFFFFFFFF;
+            }
+        }
+
         for (int i = 0; i < max_iter; i++) {
             auto t1 = Clock::now();
             slic_assign(&context);
@@ -407,6 +410,14 @@ extern "C" {
             auto t3 = Clock::now();
             std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
             std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+        }
+
+        // Clean up: Drop distance part in assignment and let only cluster numbers remain
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
+            }
         }
         slic_enforce_connectivity(H, W, K, clusters, assignment);
 
