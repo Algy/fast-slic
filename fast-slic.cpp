@@ -51,11 +51,13 @@ struct Context {
     int H;
     int W;
     int K;
+    int16_t S;
     uint8_t compactness_shift;
     uint8_t quantize_level;
     Cluster* clusters;
     uint32_t* assignment;
     ClusterPixel *cluster_boxes;
+    uint16_t* spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3) 
 };
 
 static void init_context(Context *context) {
@@ -65,6 +67,8 @@ static void init_context(Context *context) {
 static void free_context(Context *context) {
     if (context->cluster_boxes)
         delete [] context->cluster_boxes;
+    if (context->spatial_normalize_cache)
+        delete [] context->spatial_normalize_cache;
 }
 
 uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
@@ -114,13 +118,16 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto assignment = context->assignment;
     auto quantize_level = context->quantize_level;
 
-    const int16_t S = (int16_t)sqrt(H * W / K);
+    const int16_t S = context->S;
     const uint8_t spatial_shift = quantize_level + compactness_shift;
 
-    uint16_t spatial_normalize_cache[2 * S + 2]; // (x) -> (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3) 
-    for (int x = 0; x < 2 * S + 2; x++) {
-        spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3);
+    if (!context->spatial_normalize_cache) {
+        context->spatial_normalize_cache = new uint16_t[2 * S + 2];
+        for (int x = 0; x < 2 * S + 2; x++) {
+            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3);
+        }
     }
+    const uint16_t* spatial_normalize_cache = context->spatial_normalize_cache;
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
     std::vector<const Cluster *> cluster_sorted_ptrs;
@@ -143,34 +150,22 @@ static void slic_assign_cluster_oriented(Context *context) {
         int16_t cluster_x = cluster->x;
         const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S);
         const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S);
-        
-        const int16_t local_buffer_width = x_hi - x_lo;
-        const int16_t local_buffer_height = y_hi - y_lo;
-        uint16_t* local_buffer = new uint16_t[local_buffer_height * local_buffer_width];
 
         // spatial distances are done in local_buffer
         // Now, add color distances
-        for (int16_t bi = 0; bi < local_buffer_height; bi++) {
-            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
-                int16_t i = bi + y_lo, j = bj + x_lo;
-                int32_t img_base_index = 3 * (W * i + j);
+        for (int16_t i = y_lo; i < y_hi; i++) {
+            for (int16_t j = x_lo; j < x_hi; j++) {
+                int32_t base_index = W * i + j;
+                int32_t img_base_index = 3 * base_index;
                 uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
                 uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
                 uint16_t spatial_dist = spatial_normalize_cache[fast_abs<int16_t>(i - cluster_y) + fast_abs<int16_t>(j - cluster_x)];
-                local_buffer[local_buffer_width * bi + bj] = spatial_dist + color_dist;
-            }
-        }
-
-        for (int16_t bi = 0; bi < local_buffer_height; bi++) {
-            for (int16_t bj = 0; bj < local_buffer_width; bj++) {
-                int16_t i = bi + y_lo, j = bj + x_lo;
-                int32_t base_index = W * i + j;
-                uint32_t assignment_val = ((uint32_t)local_buffer[local_buffer_width * bi + bj] << 16) + (uint32_t)cluster->number;
+                uint32_t assignment_val = ((uint32_t)(color_dist + spatial_dist) << 16) + (uint32_t)cluster->number;
                 if (assignment[base_index] > assignment_val)
                     assignment[base_index] = assignment_val;
             }
         }
-        delete [] local_buffer;
+
     }
     auto t2 = Clock::now();
 
@@ -403,6 +398,7 @@ extern "C" {
         context.H = H;
         context.W = W;
         context.K = K;
+        context.S = (int16_t)sqrt(H * W / K);
         context.compactness_shift = compactness_shift;
         context.quantize_level = quantize_level;
         context.clusters = clusters;
