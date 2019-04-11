@@ -2,6 +2,8 @@
 
 Fast-slic is a SLIC-variant algorithm implementation that aims for significantly low runtime with cpu. It runs 6-8 times faster than existing SLIC implementations, at the cost of accuracy to some extent. 
 
+![demo_tiger](https://user-images.githubusercontent.com/2352985/55949421-86030600-5c8d-11e9-9693-b05f00f1c792.jpg)
+
 ## Installation
 ```python
 pip install fast_slic
