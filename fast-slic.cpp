@@ -137,6 +137,13 @@ static void slic_assign_cluster_oriented(Context *context) {
     const int16_t S = context->S;
     const uint8_t spatial_shift = quantize_level + compactness_shift;
 
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            assignment[i * W + j] =  0xFFFFFFFF;
+        }
+    }
+
     if (!context->spatial_normalize_cache) {
         context->spatial_normalize_cache = new uint16_t[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
@@ -211,6 +218,14 @@ static void slic_assign_cluster_oriented(Context *context) {
     }
     auto t2 = Clock::now();
 
+    // Clean up: Drop distance part in assignment and let only cluster numbers remain
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
+        }
+    }
+
     // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 }
@@ -245,7 +260,7 @@ static void slic_update_clusters(Context *context) {
                 int base_index = W * i + j;
                 int img_base_index = 3 * base_index;
 
-                cluster_no_t cluster_no = (cluster_no_t)(0xFFFFFFFF & assignment[base_index]);
+                cluster_no_t cluster_no = (cluster_no_t)(assignment[base_index]);
                 if (cluster_no == 0xFFFF) continue;
                 num_cluster_members[cluster_no]++;
                 local_acc_vec[cluster_no][0] += i;
@@ -446,13 +461,6 @@ extern "C" {
         context.clusters = clusters;
         context.assignment = assignment;
 
-        #pragma omp parallel for collapse(2)
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                assignment[i * W + j] =  0xFFFFFFFF;
-            }
-        }
-
         for (int i = 0; i < max_iter; i++) {
             auto t1 = Clock::now();
             slic_assign(&context);
@@ -463,13 +471,6 @@ extern "C" {
             // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
-        // Clean up: Drop distance part in assignment and let only cluster numbers remain
-        #pragma omp parallel for collapse(2)
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
-            }
-        }
         auto t1 = Clock::now();
         slic_enforce_connectivity(H, W, K, clusters, assignment);
         auto t2 = Clock::now();
