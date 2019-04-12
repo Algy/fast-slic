@@ -2,4 +2,4 @@ global-include *.pyx
 global-include *.pxd
 global-include *.cpp
 global-include *.h
-
+exclude cfast_slic.c
