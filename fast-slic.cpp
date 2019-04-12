@@ -204,7 +204,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     }
     auto t2 = Clock::now();
 
-    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+    // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 }
 
@@ -452,8 +452,8 @@ extern "C" {
             auto t2 = Clock::now();
             slic_update_clusters(&context);
             auto t3 = Clock::now();
-            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+            // std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
         // Clean up: Drop distance part in assignment and let only cluster numbers remain
@@ -467,7 +467,7 @@ extern "C" {
         slic_enforce_connectivity(H, W, K, clusters, assignment);
         auto t2 = Clock::now();
 
-        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 
         free_context(&context);
