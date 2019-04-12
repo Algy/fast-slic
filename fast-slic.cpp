@@ -167,6 +167,27 @@ static void slic_assign_cluster_oriented(Context *context) {
     // OPTIMIZATION 2: L1 norm instead of L2
     // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
     // OPTIMIZATION 6: Make computations of L1 distance SIMD-friendly
+#define INNER_ASSIGN_BODY { \
+    int32_t base_index = W * i + j; \
+    uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level); \
+    if (assignment[base_index] > assignment_val) \
+        assignment[base_index] = assignment_val; \
+}
+
+#define DEC_ASSIGN_BODY(lo, hi, current_manhattan) { \
+    for (int16_t j = lo; j < hi; j++) { \
+        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--]; \
+        INNER_ASSIGN_BODY \
+    } \
+}
+
+#define INC_ASSIGN_BODY(lo, hi, current_manhattan) { \
+    for (int16_t j = lo; j < hi; j++) { \
+        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++]; \
+        INNER_ASSIGN_BODY \
+    } \
+}
+
 
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
@@ -179,44 +200,14 @@ static void slic_assign_cluster_oriented(Context *context) {
         uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
         for (int16_t i = y_lo; i < cluster_y; i++) {
             uint16_t current_manhattan = row_first_manhattan--;
-            #pragma GCC unroll(2)
-            for (int16_t j = x_lo; j < cluster_x; j++) {
-                int32_t base_index = W * i + j;
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
-            }
-
-            #pragma GCC unroll(2)
-            for (int16_t j = cluster_x; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
-            }
+            DEC_ASSIGN_BODY(x_lo, cluster_x, current_manhattan)
+            INC_ASSIGN_BODY(cluster_x, x_hi, current_manhattan)
         }
 
         for (int16_t i = cluster_y; i < y_hi; i++) {
             uint16_t current_manhattan = row_first_manhattan++;
-            #pragma GCC unroll(2)
-            for (int16_t j = x_lo; j < cluster_x; j++) {
-                int32_t base_index = W * i + j;
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
-            }
-
-            #pragma GCC unroll(2)
-            for (int16_t j = cluster_x; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
-            }
+            DEC_ASSIGN_BODY(x_lo, cluster_x, current_manhattan)
+            INC_ASSIGN_BODY(cluster_x, x_hi, current_manhattan)
         }
 
     }
