@@ -62,7 +62,7 @@ struct Context {
     Cluster* clusters;
     uint32_t* assignment;
     ClusterPixel *cluster_boxes;
-    uint16_t* spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3) 
+    uint16_t* spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
 };
 
 static void init_context(Context *context) {
@@ -140,7 +140,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto quantize_level = context->quantize_level;
 
     const int16_t S = context->S;
-    const uint8_t spatial_shift = quantize_level + compactness_shift;
 
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < H; i++) {
@@ -152,7 +151,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     if (!context->spatial_normalize_cache) {
         context->spatial_normalize_cache = new uint16_t[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
-            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x << spatial_shift) / S / 2 * 3);
+            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness_shift << quantize_level) / S / 2 * 3);
         }
     }
     const uint16_t* spatial_normalize_cache = context->spatial_normalize_cache;
