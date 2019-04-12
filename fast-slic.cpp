@@ -39,6 +39,11 @@ static T ceil_int(T numer, T denom) {
     return (numer + denom - 1) / denom;
 }
 
+template <typename T>
+static T round_int(T numer, T denom) {
+    return (numer + (denom / 2)) / denom;
+}
+
 struct ClusterPixel {
     uint16_t cluster_nos[9];
     int8_t last_index;
@@ -169,8 +174,8 @@ static void slic_assign_cluster_oriented(Context *context) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
         int16_t cluster_y = cluster->y;
         int16_t cluster_x = cluster->x;
-        const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S);
-        const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S);
+        const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S + 1);
+        const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
 
         uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
         for (int16_t i = y_lo; i < cluster_y; i++) {
@@ -294,11 +299,11 @@ static void slic_update_clusters(Context *context) {
 
         // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
         // But, I intentionally used mean here for the sake of performance.
-        cluster->y = cluster_acc_vec[k][0] / num_current_members;
-        cluster->x = cluster_acc_vec[k][1] / num_current_members;
-        cluster->r = cluster_acc_vec[k][2] / num_current_members;
-        cluster->g = cluster_acc_vec[k][3] / num_current_members;
-        cluster->b = cluster_acc_vec[k][4] / num_current_members;
+        cluster->y = round_int(cluster_acc_vec[k][0], num_current_members);
+        cluster->x = round_int(cluster_acc_vec[k][1], num_current_members);
+        cluster->r = round_int(cluster_acc_vec[k][2], num_current_members);
+        cluster->g = round_int(cluster_acc_vec[k][3], num_current_members);
+        cluster->b = round_int(cluster_acc_vec[k][4], num_current_members);
     }
 }
 
