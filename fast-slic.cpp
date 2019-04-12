@@ -4,8 +4,10 @@
 #include <vector>
 #include <unordered_set>
 #include <cstring>
+#include <cassert>
 
 #include "fast-slic.h"
+#include "simd-helper.hpp"
 
 #define CHARBIT 8
 
@@ -24,11 +26,6 @@ static inline T my_min(T x, T y) {
 template <typename T>
 static T fast_abs(T n)
 {
-    // This doesn't help much
-    /*
-    T const mask = n >> (sizeof(T) * CHARBIT - 1);
-    return ((n + mask) ^ mask);
-    */
     if (n < 0)
         return -n;
     return n;
@@ -50,8 +47,10 @@ struct ClusterPixel {
 };
 
 
+
 struct Context {
-    const uint8_t* image;
+    const uint8_t* __restrict__ image;
+    uint8_t* __restrict__ aligned_image; // copied image
     const char* algorithm;
     int H;
     int W;
@@ -59,10 +58,11 @@ struct Context {
     int16_t S;
     uint8_t compactness_shift;
     uint8_t quantize_level;
-    Cluster* clusters;
-    uint32_t* assignment;
-    ClusterPixel *cluster_boxes;
-    uint16_t* spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
+    Cluster* __restrict__ clusters;
+    uint32_t* __restrict__ assignment;
+    uint32_t* __restrict__ aligned_assignment;
+    uint16_t* __restrict__ spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
+    ClusterPixel* __restrict__ cluster_boxes;
 };
 
 static void init_context(Context *context) {
@@ -74,6 +74,9 @@ static void free_context(Context *context) {
         delete [] context->cluster_boxes;
     if (context->spatial_normalize_cache)
         delete [] context->spatial_normalize_cache;
+    if (context->aligned_image) {
+        simd_helper::free_aligned_array(context->aligned_image);
+    }
 }
 
 uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
@@ -122,31 +125,29 @@ struct sort_cmp {
 #include <iostream>
 typedef std::chrono::high_resolution_clock Clock;
 
-static inline uint32_t get_assignment_value(const Cluster* cluster, const uint8_t* image, int32_t base_index, uint16_t spatial_dist, uint8_t quantize_level) {
-    int32_t img_base_index = 3 * base_index;
-    uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
-    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
-    return ((uint32_t)(color_dist + spatial_dist) << 16) + (uint32_t)cluster->number;
-}
-
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
     auto compactness_shift = context->compactness_shift;
     auto clusters = context->clusters;
-    auto image = context->image;
     auto assignment = context->assignment;
     auto quantize_level = context->quantize_level;
-
     const int16_t S = context->S;
+
+    uint8_t* __restrict__ aligned_image = context->aligned_image;
+    aligned_image = (uint8_t*)HINT_ALIGNED(aligned_image);
 
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
-            assignment[i * W + j] =  0xFFFFFFFF;
+            assignment[i * W + j] = 0xFFFFFFFF;
         }
     }
+
+    /*
+     * Calculate Spatial normalizer
+     */
 
     if (!context->spatial_normalize_cache) {
         context->spatial_normalize_cache = new uint16_t[2 * S + 2];
@@ -154,64 +155,129 @@ static void slic_assign_cluster_oriented(Context *context) {
             context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness_shift << quantize_level) / S / 2 * 3);
         }
     }
-    const uint16_t* spatial_normalize_cache = context->spatial_normalize_cache;
+
+    const uint16_t* __restrict__ spatial_normalize_cache = context->spatial_normalize_cache;
+
+    uint16_t patch_height = 2 * S + 1;
+    uint16_t patch_assigment_width = 2 * S + 1;
+    uint16_t patch_width = patch_assigment_width * 3;
+
+    uint16_t* spatial_dist_patch = simd_helper::alloc_aligned_array<uint16_t>(patch_height * patch_width);
+    spatial_dist_patch = (uint16_t *)HINT_ALIGNED(spatial_dist_patch);
+
+    {
+        uint16_t row_first_manhattan = 2 * S;
+        // first half lines
+        for (int i = 0; i < S; i++) {
+            uint16_t current_manhattan = row_first_manhattan--;
+            // first half columns
+            for (int j = 0; j < S; j++) {
+                uint16_t val = spatial_normalize_cache[current_manhattan--];
+                for (int k = 0; k < 3; k++) {
+                     spatial_dist_patch[i * patch_width + 3 * j + k] = val / 3;
+                }
+            }
+            // half columns next to the first columns
+            for (int j = S; j <= 2 * S; j++) {
+                uint16_t val = spatial_normalize_cache[current_manhattan++];
+                for (int k = 0; k < 3; k++) {
+                     spatial_dist_patch[i * patch_width + 3 * j + k] = val / 3;
+                }
+            }
+        }
+
+        // next half lines
+        for (int i = S; i <= 2 * S; i++) {
+            uint16_t current_manhattan = row_first_manhattan++;
+
+            // first half columns
+            for (int j = 0; j < S; j++) {
+                uint16_t val = spatial_normalize_cache[current_manhattan--];
+                for (int k = 0; k < 3; k++) {
+                     spatial_dist_patch[i * patch_width + 3 * j + k] = val / 3;
+                }
+            }
+            // half columns next to the first columns
+            for (int j = S; j <= 2 * S; j++) {
+                uint16_t val = spatial_normalize_cache[current_manhattan++];
+                for (int k = 0; k < 3; k++) {
+                     spatial_dist_patch[i * patch_width + 3 * j + k] = val / 3;
+                }
+            }
+        }
+    }
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
     std::vector<const Cluster *> cluster_sorted_ptrs;
     for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
-
     std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), sort_cmp(S));
+
     auto t1 = Clock::now();
-
-    // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
-    // OPTIMIZATION 2: L1 norm instead of L2
-    // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-    // OPTIMIZATION 6: Make computations of L1 distance SIMD-friendly
-#define INNER_ASSIGN_BODY { \
-    int32_t base_index = W * i + j; \
-    uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level); \
-    if (assignment[base_index] > assignment_val) \
-        assignment[base_index] = assignment_val; \
-}
-
-#define DEC_ASSIGN_BODY(lo, hi, current_manhattan) { \
-    for (int16_t j = lo; j < hi; j++) { \
-        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--]; \
-        INNER_ASSIGN_BODY \
-    } \
-}
-
-#define INC_ASSIGN_BODY(lo, hi, current_manhattan) { \
-    for (int16_t j = lo; j < hi; j++) { \
-        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++]; \
-        INNER_ASSIGN_BODY \
-    } \
-}
-
-
+ 
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
         const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
-        int16_t cluster_y = cluster->y;
-        int16_t cluster_x = cluster->x;
-        const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S + 1);
-        const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
+        cluster_no_t cluster_number = cluster->number;
+        const int16_t cluster_y = my_min<int16_t>(my_max<int16_t>(cluster->y, S), H - S - 1);
+        const int16_t cluster_x = my_min<int16_t>(my_max<int16_t>(cluster->x, S), W - S - 1);
 
-        uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
-        for (int16_t i = y_lo; i < cluster_y; i++) {
-            uint16_t current_manhattan = row_first_manhattan--;
-            DEC_ASSIGN_BODY(x_lo, cluster_x, current_manhattan)
-            INC_ASSIGN_BODY(cluster_x, x_hi, current_manhattan)
+        uint8_t cluster_rgb[4] = {
+            cluster->r,
+            cluster->g,
+            cluster->b,
+            0
+        };
+
+        const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
+
+        ALIGN_SIMD uint8_t cluster_rgb_stripe[patch_width];
+        ALIGN_SIMD uint8_t rgb_abs_diff_row[patch_width];
+        ALIGN_SIMD uint16_t assignment_value_rgb_row[patch_width];
+        ALIGN_SIMD uint32_t assignment_value_row[patch_assigment_width] ;
+
+        for (int16_t t = 0; t < patch_width; t += 3) {
+            for (int8_t k = 0; k < 3; k++) {
+                cluster_rgb_stripe[t + k] = cluster_rgb[k];
+            }
         }
 
-        for (int16_t i = cluster_y; i < y_hi; i++) {
-            uint16_t current_manhattan = row_first_manhattan++;
-            DEC_ASSIGN_BODY(x_lo, cluster_x, current_manhattan)
-            INC_ASSIGN_BODY(cluster_x, x_hi, current_manhattan)
-        }
+        for (int16_t i = 0; i < patch_height; i++) {
+            int16_t assignment_i = i + y_lo;
+            int16_t assignment_j_start = x_lo;
 
+            // img_ptr can be unaligned
+            const uint8_t *img_ptr = aligned_image + 3 * W * assignment_i;
+            for (int16_t j = 0; j < patch_width; j++) {
+                rgb_abs_diff_row[j] = (
+                    // vectorized element-wise max
+                    ((img_ptr[j] > cluster_rgb_stripe[j])? img_ptr[j] : cluster_rgb_stripe[j]) - 
+                    // vectorized element-wise min
+                    ((img_ptr[j] < cluster_rgb_stripe[j])? img_ptr[j] : cluster_rgb_stripe[j])
+                );
+            }
+
+            for (int16_t j = 0; j < patch_width; j++) {
+                assignment_value_rgb_row[j] = rgb_abs_diff_row[j] + spatial_dist_patch[patch_width * i + j];
+            }
+
+            // reduce-sum r, g, b elements
+            for (int16_t mj = 0; mj < patch_assigment_width; mj++) {
+                uint16_t sum = 0;
+                for (uint8_t delta = 0; delta < 3; delta++) {
+                    sum += (uint16_t)rgb_abs_diff_row[3 * mj + delta] + spatial_dist_patch[i * patch_width + 3 * mj + delta];
+                }
+                assignment_value_row[mj] = ((uint32_t)sum << 16) + cluster_number;
+            }
+
+            for (int16_t mj = 0; mj < patch_assigment_width; mj++) {
+                uint32_t base_index = assignment_i * W + assignment_j_start;
+                assignment[base_index + mj] = assignment_value_row[mj] < assignment[base_index + mj]? assignment_value_row[mj] : assignment[base_index + mj];
+            }
+        }
     }
     auto t2 = Clock::now();
+
+    simd_helper::free_aligned_array(spatial_dist_patch);
 
     // Clean up: Drop distance part in assignment and let only cluster numbers remain
     #pragma omp parallel for collapse(2)
@@ -221,7 +287,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         }
     }
 
-    // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 }
 
@@ -445,7 +511,6 @@ extern "C" {
     }
 
     void do_slic(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
-
         Context context;
         init_context(&context);
         context.image = image;
@@ -459,21 +524,24 @@ extern "C" {
         context.clusters = clusters;
         context.assignment = assignment;
 
+        uint8_t* aligned_image = simd_helper::copy_and_align_array<uint8_t>(image, H * W * 3);
+        context.aligned_image = aligned_image;
+
         for (int i = 0; i < max_iter; i++) {
             auto t1 = Clock::now();
             slic_assign(&context);
             auto t2 = Clock::now();
             slic_update_clusters(&context);
             auto t3 = Clock::now();
-            // std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
         auto t1 = Clock::now();
         slic_enforce_connectivity(H, W, K, clusters, assignment);
         auto t2 = Clock::now();
 
-        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
 
         free_context(&context);
@@ -527,7 +595,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // auto t1 = Clock::now();
+    auto t1 = Clock::now();
     slic_initialize_clusters(H, W, K, image.get(), clusters);
     do_slic(H, W, K, compactness, quantize_level, max_iter, image.get(), clusters, assignment.get());
 
