@@ -253,6 +253,8 @@ static void slic_update_clusters(Context *context) {
     #pragma omp parallel
     {
         int local_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
+        int local_num_cluster_members[K];
+        std::fill_n(local_num_cluster_members, K, 0);
         std::fill_n((int*)local_acc_vec, K * 5, 0);
         #pragma omp for collapse(2)
         for (int i = 0; i < H; i++) {
@@ -262,7 +264,7 @@ static void slic_update_clusters(Context *context) {
 
                 cluster_no_t cluster_no = (cluster_no_t)(assignment[base_index]);
                 if (cluster_no == 0xFFFF) continue;
-                num_cluster_members[cluster_no]++;
+                local_num_cluster_members[cluster_no]++;
                 local_acc_vec[cluster_no][0] += i;
                 local_acc_vec[cluster_no][1] += j;
                 local_acc_vec[cluster_no][2] += image[img_base_index];
@@ -277,6 +279,7 @@ static void slic_update_clusters(Context *context) {
                 for (int dim = 0; dim < 5; dim++) {
                     cluster_acc_vec[k][dim] += local_acc_vec[k][dim];
                 }
+                num_cluster_members[k] += local_num_cluster_members[k];
             }
         }
     }
