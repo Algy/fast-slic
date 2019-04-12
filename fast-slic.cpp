@@ -101,6 +101,15 @@ static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
 }
 
 
+struct sort_cmp {
+    int16_t S;
+    sort_cmp(int16_t S) : S(S) {};
+    inline bool operator() (const Cluster * lhs, const Cluster * rhs) {
+        return get_sort_value(lhs->y, lhs->x, S) < get_sort_value(rhs->y, rhs->x, S);
+    }
+};
+
+
 #include <string>
 #include <chrono>
 #include <fstream>
@@ -140,9 +149,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     std::vector<const Cluster *> cluster_sorted_ptrs;
     for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
 
-    std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), [S](const Cluster *lhs, const Cluster *rhs) {
-        return get_sort_value(lhs->y, lhs->x, S) < get_sort_value(rhs->y, rhs->x, S);
-    });
+    std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), sort_cmp(S));
     auto t1 = Clock::now();
 
     // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
