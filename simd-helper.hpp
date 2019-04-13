@@ -42,8 +42,8 @@
 
 
 
-// AVX512 needs 64 byte alignment
-#define Alignment 64
+// AVX2 needs 32 byte alignment
+#define Alignment 32
 #define ALIGN_SIMD ALIGN(Alignment)
 
 
