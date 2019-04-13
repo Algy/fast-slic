@@ -47,7 +47,6 @@ extra_link_args = ["-lstdc++"]
 if platform.system() != 'Windows':
     if _check_openmp():
         extra_compile_args.append('-fopenmp')
-        extra_compile_args.append('-ffast-math')
         extra_link_args.append('-lgomp')
 
 
