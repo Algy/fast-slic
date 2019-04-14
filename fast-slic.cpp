@@ -336,6 +336,18 @@ static void slic_assign_cluster_oriented(Context *context) {
     }
 
     auto t1 = Clock::now();
+    __m256i color_swap_mask =  _mm256_set_epi32(
+        7, 7, 7, 7,
+        6, 4, 2, 0
+
+    );
+    __m128i sad_duplicate_mask = _mm_set_epi8(
+        13, 12, 13, 12,
+        9, 8, 9, 8,
+        5, 4, 5, 4,
+        1, 0, 1, 0
+    );
+
  
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
@@ -350,18 +362,6 @@ static void slic_assign_cluster_oriented(Context *context) {
         __m256i cluster_color_vec = _mm256_set1_epi32((uint32_t)cluster_color_quad);
         // 16 elements uint16_t (among there elements are the first 8 elements used)
         __m256i cluster_number_vec = _mm256_set1_epi32((uint32_t)cluster_number);
-
-        __m256i color_swap_mask =  _mm256_set_epi32(
-            7, 7, 7, 7,
-            6, 4, 2, 0
-
-        );
-        __m128i sad_duplicate_mask = _mm_set_epi8(
-            13, 12, 13, 12,
-            9, 8, 9, 8,
-            5, 4, 5, 4,
-            1, 0, 1, 0
-        );
 
         for (int16_t i = 0; i < patch_height; i++) {
             const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
