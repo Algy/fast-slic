@@ -194,18 +194,31 @@ __m256i get_assignment_value_vec(
         int patch_memory_width,
         int i, int j, int patch_virtual_width,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
-        __m256i cluster_number_vec, __m256i cluster_color_vec,
-        __m256i color_swap_mask
+        __m256i cluster_number_vec, __m256i cluster_color_vec64, __m256i cluster_color_vec,
+        __m256i color_swap_mask, __m128i sad_duplicate_mask
         ) {
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     assert((long long)(spatial_dist_patch_row) % 16 == 0);
 #endif
     // image_segment: 32 elements of uint8_t 
+    // cluster_color_vec64: cluster_R cluster_B cluster_G 0 0 0 0 0 cluster_R cluster_G cluster_B 0 ....
+    // cluster_color_vec: cluster_R cluster_B cluster_G 0 cluster_R cluster_G cluster_B 0 ...
     // spatial_dist_vec__narrow: 8 elements of uint16_t (128-bit narrow vector)
-    // color_dist_vec, dist_vec: 8 elements of uint16_t (trailing 8 16-bit cells are ignored)
+    // color_dist_vec__narrow, dist_vec__narrow: 8 elements of uint16_t (128-bit narrow-vectors)
     // assignment_value_vec: 
     //   8 elements of uint32_t
     //   [high 16-bit: distance value] + [low 16-bit: cluster_number]
+
+    __m128i spatial_dist_vec__narrow = _mm_load_si128((__m128i *)spatial_dist_patch_row);
+#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+    {
+        uint16_t spatial_dists[8];
+        _mm_storeu_si128((__m128i*)spatial_dists, spatial_dist_vec__narrow);
+        for (int delta = 0; delta < 8; delta++) {
+            assert(spatial_dists[delta] == spatial_dist_patch[patch_memory_width * i + (j + delta)]);
+        }
+    }
+#endif
 
     __m256i image_segment = _mm256_loadu_si256((__m256i*)img_quad_row);
 
@@ -221,21 +234,27 @@ __m256i get_assignment_value_vec(
     }
 #endif
 
+#ifdef FAST_SLIC_AVX2_FASTER
+    __m256i sad = _mm256_sad_epu8(image_segment, cluster_color_vec);
+    __m128i shrinked__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(sad, color_swap_mask));
+    __m128i duplicate__narrow = _mm_shuffle_epi8(shrinked__narrow, sad_duplicate_mask);
+    __m128i color_dist_vec__narrow = _mm_slli_epi32(duplicate__narrow, quantize_level);
+    __m128i dist_vec__narrow = _mm_adds_epu16(color_dist_vec__narrow, spatial_dist_vec__narrow);
+#else 
     __m128i lo_segment__narrow = _mm256_extracti128_si256(image_segment, 0);
     __m128i hi_segment__narrow = _mm256_extracti128_si256(image_segment, 1);
 
     __m256i lo_segment = _mm256_cvtepu32_epi64(lo_segment__narrow);
     __m256i hi_segment = _mm256_cvtepu32_epi64(hi_segment__narrow);
 
-    __m256i lo_sad = _mm256_sad_epu8(lo_segment, cluster_color_vec);
-    __m256i hi_sad = _mm256_sad_epu8(hi_segment, cluster_color_vec);
+    __m256i lo_sad = _mm256_sad_epu8(lo_segment, cluster_color_vec64);
+    __m256i hi_sad = _mm256_sad_epu8(hi_segment, cluster_color_vec64);
 
     __m128i lo_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(lo_sad, color_swap_mask));
     __m128i hi_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(hi_sad, color_swap_mask));
     __m128i packed_sad__narrow = _mm_packs_epi32(lo_sad__narrow, hi_sad__narrow);
     __m128i color_dist_vec__narrow = _mm_slli_epi32(packed_sad__narrow, quantize_level);
-
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+    #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         uint16_t shorts[8];
         _mm_storeu_si128((__m128i *)shorts, color_dist_vec__narrow);
@@ -247,35 +266,26 @@ __m256i get_assignment_value_vec(
             assert((int)shorts[v] == dist);
         }
     }
-#endif
-    __m128i spatial_dist_vec__narrow = _mm_load_si128((__m128i *)spatial_dist_patch_row);
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-    {
-        uint16_t spatial_dists[8];
-        _mm_storeu_si128((__m128i*)spatial_dists, spatial_dist_vec__narrow);
-        for (int delta = 0; delta < 8; delta++) {
-            assert(spatial_dists[delta] == spatial_dist_patch[patch_memory_width * i + (j + delta)]);
-        }
-    }
-#endif
-
+    #endif
     __m128i dist_vec__narrow = _mm_adds_epu16(color_dist_vec__narrow, spatial_dist_vec__narrow);
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-    {
-        uint16_t dists[8];
-        _mm_storeu_si128((__m128i*)dists, dist_vec__narrow);
-        for (int v = 0; v < my_min(8, patch_virtual_width - j); v++) {
-            assert(
-                    (int)dists[v] ==
-                    ((int)spatial_dist_patch[patch_memory_width * i + (j + v)] +
-                     ((fast_abs<int>(img_quad_row[4 * v + 0]  - cluster->r) +
-                       fast_abs<int>(img_quad_row[4 * v + 1] - cluster->g) +
-                       fast_abs<int>(img_quad_row[4 * v + 2] - cluster->b)) << quantize_level)
-                    )
-                  );
+    #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+        {
+            uint16_t dists[8];
+            _mm_storeu_si128((__m128i*)dists, dist_vec__narrow);
+            for (int v = 0; v < my_min(8, patch_virtual_width - j); v++) {
+                assert(
+                        (int)dists[v] ==
+                        ((int)spatial_dist_patch[patch_memory_width * i + (j + v)] +
+                         ((fast_abs<int>(img_quad_row[4 * v + 0]  - cluster->r) +
+                           fast_abs<int>(img_quad_row[4 * v + 1] - cluster->g) +
+                           fast_abs<int>(img_quad_row[4 * v + 2] - cluster->b)) << quantize_level)
+                        )
+                      );
+            }
         }
-    }
+    #endif
 #endif
+    // __m256i assignment_value_vec = _mm256_unpacklo_epi16(dist_vec__narrow, cluster_number_vec);
     __m256i assignment_value_vec = _mm256_slli_epi32(_mm256_cvtepu16_epi32(dist_vec__narrow), 16) + cluster_number_vec;
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
@@ -338,13 +348,21 @@ static void slic_assign_cluster_oriented(Context *context) {
 
         // Note: x86-64 is little-endian arch. ABGR order is correct.
         const uint32_t cluster_color_quad = ((uint32_t)cluster->b << 16) + ((uint32_t)cluster->g << 8) + ((uint32_t)cluster->r);
-        __m256i cluster_color_vec = _mm256_set1_epi64x((uint64_t)cluster_color_quad);
+        __m256i cluster_color_vec64 = _mm256_set1_epi64x((uint64_t)cluster_color_quad);
+        __m256i cluster_color_vec = _mm256_set1_epi32((uint32_t)cluster_color_quad);
         // 16 elements uint16_t (among there elements are the first 8 elements used)
         __m256i cluster_number_vec = _mm256_set1_epi32((uint32_t)cluster_number);
 
         __m256i color_swap_mask =  _mm256_set_epi32(
             7, 7, 7, 7,
             6, 4, 2, 0
+
+        );
+        __m128i sad_duplicate_mask = _mm_set_epi8(
+            13, 12, 13, 12,
+            9, 8, 9, 8,
+            5, 4, 5, 4,
+            1, 0, 1, 0
         );
 
         for (int16_t i = 0; i < patch_height; i++) {
@@ -370,8 +388,10 @@ static void slic_assign_cluster_oriented(Context *context) {
         img_quad_row, \
         spatial_dist_patch_row, \
         cluster_number_vec, \
+        cluster_color_vec64, \
         cluster_color_vec, \
-        color_swap_mask \
+        color_swap_mask, \
+        sad_duplicate_mask \
     ); \
 }
             const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
