@@ -62,21 +62,13 @@ namespace simd_helper {
     template <typename T>
     static T* alloc_aligned_array(std::size_t count) {
         std::size_t size = count * sizeof(T);
-        std::size_t space = size + (Alignment - 1);
-        void *ptr = std::malloc(space + sizeof(T *));
-        void *original_ptr = ptr;
-
-        char *ptr_bytes = static_cast<char*>(ptr);
-        ptr_bytes += sizeof(void*);
-        ptr = static_cast<void*>(ptr_bytes);
-
-        ptr = std::align(Alignment, size, ptr, space);
-
-        ptr_bytes = static_cast<char*>(ptr);
-        ptr_bytes -= sizeof(void*);
-        std::memcpy(ptr_bytes, &original_ptr, sizeof(void*));
-
-        return (T *)ptr;
+        std::size_t alignment = Alignment;
+        uintptr_t r = (uintptr_t)malloc(size + --alignment + sizeof(uintptr_t));
+        uintptr_t t = r + sizeof(uintptr_t);
+        uintptr_t o =(t + alignment) & ~(uintptr_t)alignment;
+        if (!r) return NULL;
+        ((uintptr_t*)o)[-1] = r;
+        return (T *)o;
     }
 
     template <typename T>
@@ -87,17 +79,14 @@ namespace simd_helper {
     }
 
     static void free_aligned_array(void* array) {
-        char *ptr_bytes = static_cast<char*>(array);
-        ptr_bytes -= sizeof(void*);
-        void *original_ptr;
-        std::memcpy(&original_ptr, ptr_bytes, sizeof(void*));
-        std::free(original_ptr);
+        free((void*)(((uintptr_t*)array)[-1]));
     }
 
     template <typename T>
     static T align_to_next(T x) {
         return (x + (Alignment - 1)) & (~(Alignment - 1));
     }
+
 }
 
 

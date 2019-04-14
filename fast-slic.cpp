@@ -5,6 +5,8 @@
 #include <unordered_set>
 #include <cstring>
 #include <cassert>
+#include <iostream>
+#include <iomanip>
 
 #include <immintrin.h>
 #include "fast-slic.h"
@@ -47,8 +49,6 @@ struct ClusterPixel {
     int8_t last_index;
 };
 
-
-
 struct Context {
     const uint8_t* __restrict__ image;
     uint8_t* __restrict__ aligned_quad_image; // copied image
@@ -65,6 +65,7 @@ struct Context {
     uint32_t* __restrict__ aligned_assignment;
     int assignment_memory_width; // memory width of aligned_assignment
     uint16_t* __restrict__ spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
+    uint16_t* __restrict__ spatial_dist_patch;
     ClusterPixel* __restrict__ cluster_boxes;
 };
 
@@ -72,16 +73,73 @@ static void init_context(Context *context) {
     memset(context, 0, sizeof(Context));
 }
 
+static void prepare_spatial(Context *context) {
+    int16_t S = context->S;
+    int8_t quantize_level = context->quantize_level;
+    uint8_t compactness_shift = context->compactness_shift;
+
+    uint16_t* spatial_normalize_cache = new uint16_t[2 * S + 2];
+    context->spatial_normalize_cache = spatial_normalize_cache;
+    for (int x = 0; x < 2 * S + 2; x++) {
+        context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness_shift << quantize_level) / S / 2 * 3);
+    }
+
+    const uint16_t patch_height = 2 * S + 1, patch_virtual_width = 2 * S + 1;
+    const uint16_t patch_memory_width = simd_helper::align_to_next(patch_virtual_width);
+
+    // asm("int $3");
+    uint16_t* spatial_dist_patch = simd_helper::alloc_aligned_array<uint16_t>(patch_height * patch_memory_width);
+    uint16_t row_first_manhattan = 2 * S;
+    // first half lines
+    for (int i = 0; i < S; i++) {
+        uint16_t current_manhattan = row_first_manhattan--;
+        // first half columns
+        for (int j = 0; j < S; j++) {
+            uint16_t val = spatial_normalize_cache[current_manhattan--];
+            spatial_dist_patch[i * patch_memory_width + j] = val;
+        }
+        // half columns next to the first columns
+        for (int j = S; j <= 2 * S; j++) {
+            uint16_t val = spatial_normalize_cache[current_manhattan++];
+            spatial_dist_patch[i * patch_memory_width + j] = val;
+        }
+    }
+
+    // next half lines
+    for (int i = S; i <= 2 * S; i++) {
+        uint16_t current_manhattan = row_first_manhattan++;
+        // first half columns
+        for (int j = 0; j < S; j++) {
+            uint16_t val = spatial_normalize_cache[current_manhattan--];
+            spatial_dist_patch[i * patch_memory_width + j] = val;
+        }
+        // half columns next to the first columns
+        for (int j = S; j <= 2 * S; j++) {
+            uint16_t val = spatial_normalize_cache[current_manhattan++];
+            spatial_dist_patch[i * patch_memory_width + j] = val;
+        }
+    }
+    context->spatial_dist_patch = spatial_dist_patch;
+}
+
 static void free_context(Context *context) {
+    std::cerr << "Freeing Cluster boxes" <<std::endl;
     if (context->cluster_boxes)
         delete [] context->cluster_boxes;
+    std::cerr << "Freeing Spatial normalize cache" <<std::endl;
     if (context->spatial_normalize_cache)
         delete [] context->spatial_normalize_cache;
+    std::cerr << "Freeing Aligned quad image" <<std::endl;
     if (context->aligned_quad_image) {
         simd_helper::free_aligned_array(context->aligned_quad_image);
     }
+    std::cerr << "Freeing Aligned assignment" <<std::endl;
     if (context->aligned_assignment) {
         simd_helper::free_aligned_array(context->aligned_assignment);
+    }
+    std::cerr << "Freeing spatial dist patch" <<std::endl;
+    if (context->spatial_dist_patch) {
+        simd_helper::free_aligned_array(context->spatial_dist_patch);
     }
 }
 
@@ -128,7 +186,6 @@ struct sort_cmp {
 #include <chrono>
 #include <fstream>
 #include <memory>
-#include <iostream>
 #include <iomanip>
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -136,80 +193,34 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
-    auto compactness_shift = context->compactness_shift;
     auto clusters = context->clusters;
-    auto aligned_assignment = context->aligned_assignment;
     auto assignment_memory_width = context->assignment_memory_width;
     auto quantize_level = context->quantize_level;
     const int16_t S = context->S;
 
-    uint8_t* __restrict__ aligned_quad_image = context->aligned_quad_image;
+    const uint8_t* __restrict__ aligned_quad_image = (uint8_t* __restrict__)HINT_ALIGNED(context->aligned_quad_image);
+    const uint16_t* __restrict__ spatial_dist_patch = (const uint16_t* __restrict__)HINT_ALIGNED(context->spatial_dist_patch);
+    uint32_t* __restrict__ aligned_assignment = (uint32_t* __restrict__)HINT_ALIGNED(context->aligned_assignment);
 
     auto quad_image_memory_width = context->quad_image_memory_width;
 
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < assignment_memory_width; j++) {
-            aligned_assignment[i * W + j] = 0xFFFFFFFF;
-        }
-    }
-
-    /*
-     * Calculate Spatial normalizer
-     */
-
-    if (!context->spatial_normalize_cache) {
-        context->spatial_normalize_cache = new uint16_t[2 * S + 2];
-        for (int x = 0; x < 2 * S + 2; x++) {
-            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness_shift << quantize_level) / S / 2 * 3);
-        }
-    }
-
-    const uint16_t* __restrict__ spatial_normalize_cache = context->spatial_normalize_cache;
+    // might help to initialize array
+#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+    assert((long long)aligned_quad_image % 32 == 0);
+    assert((long long)spatial_dist_patch % 32 == 0);
+    assert((long long)aligned_assignment % 32 == 0);
+#endif
 
     const uint16_t patch_height = 2 * S + 1, patch_virtual_width = 2 * S + 1;
     const uint16_t patch_memory_width = simd_helper::align_to_next(patch_virtual_width);
 
-    auto t0 = Clock::now();
-    uint16_t* spatial_dist_patch = simd_helper::alloc_aligned_array<uint16_t>(patch_height * patch_memory_width);
-
-    {
-        uint16_t row_first_manhattan = 2 * S;
-        // first half lines
-        for (int i = 0; i < S; i++) {
-            uint16_t current_manhattan = row_first_manhattan--;
-            // first half columns
-            for (int j = 0; j < S; j++) {
-                uint16_t val = spatial_normalize_cache[current_manhattan--];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-            // half columns next to the first columns
-            for (int j = S; j <= 2 * S; j++) {
-                uint16_t val = spatial_normalize_cache[current_manhattan++];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-        }
-
-        // next half lines
-        for (int i = S; i <= 2 * S; i++) {
-            uint16_t current_manhattan = row_first_manhattan++;
-            // first half columns
-            for (int j = 0; j < S; j++) {
-                uint16_t val = spatial_normalize_cache[current_manhattan--];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-            // half columns next to the first columns
-            for (int j = S; j <= 2 * S; j++) {
-                uint16_t val = spatial_normalize_cache[current_manhattan++];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-        }
-    }
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
     std::vector<const Cluster *> cluster_sorted_ptrs;
-    for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
-    std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), sort_cmp(S));
+    {
+        for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
+        std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), sort_cmp(S));
+    }
 
     auto t1 = Clock::now();
  
@@ -250,28 +261,21 @@ static void slic_assign_cluster_oriented(Context *context) {
             2, 0
         );
 
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-        assert((long long)aligned_quad_image % 32 == 0);
-        assert((long long)spatial_dist_patch % 32 == 0);
-        assert((long long)aligned_assignment % 32 == 0);
-#endif
         for (int16_t i = 0; i < patch_height; i++) {
-            uint16_t *spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
+            const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
             assert((long long)spatial_dist_patch_base_row % 32 == 0);
 #endif
             // not aligned because of x_lo
-            uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
+            const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
             uint32_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
 
             // 32(batch size) / 4(rgba quad) = stride 8 
-            // TODO: loop unrolling
             for (int j = 0; j < patch_virtual_width; j += 8) {
                 // Image rows are not aligned due to x_lo
-                uint8_t* img_quad_row = img_quad_base_row + 4 * j;
-
+                const uint8_t* img_quad_row = img_quad_base_row + 4 * j;
                 // Spatial distance patch is aligned
-                uint16_t* spatial_dist_patch_row = spatial_dist_patch_base_row + j; // sizeof(uint16_t) * 8 == 16
+                const uint16_t* spatial_dist_patch_row = spatial_dist_patch_base_row + j; // sizeof(uint16_t) * 8 == 16
                 spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_row, 16);
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
                 assert((long long)(spatial_dist_patch_row) % 16 == 0);
@@ -309,20 +313,19 @@ static void slic_assign_cluster_oriented(Context *context) {
                 __m256i combined_0213 = _mm256_unpacklo_epi64(f, g);
                 __m256i color_dist_vec = _mm256_permutevar8x32_epi32(combined_0213, color_swap_mask);
                 __m128i color_dist_vec__narrow = _mm256_castsi256_si128(color_dist_vec);
+                color_dist_vec__narrow = _mm_slli_epi16(color_dist_vec__narrow, quantize_level);
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
                 {
+                    // asm("int $3");
                     uint16_t shorts[8];
                     _mm_storeu_si128((__m128i *)shorts, color_dist_vec__narrow);
                     for (int v = 0; v < 8; v++) {
                         int dr = fast_abs<int>((int)img_quad_row[4 * v + 0] - (int)cluster->r);
                         int dg = fast_abs<int>((int)img_quad_row[4 * v + 1] - (int)cluster->g);
                         int db= fast_abs<int>((int)img_quad_row[4 * v + 2] - (int)cluster->b);
-                        int sum = dr + dg + db;
-
-                        if ((int)shorts[v] != dr + dg + db) {
-                            abort();
-                        }
+                        int dist = (dr + dg + db)  << quantize_level;
+                        assert((int)shorts[v] == dist);
                     }
                 }
 #endif
@@ -344,11 +347,11 @@ static void slic_assign_cluster_oriented(Context *context) {
                     _mm_storeu_si128((__m128i*)dists, dist_vec__narrow);
                     for (int v = 0; v < 8; v++) {
                         assert(
-                            dists[v] ==
-                            (spatial_dist_patch[patch_memory_width * i + (j + v)] +
-                             fast_abs(img_quad_row[4 * v + 0]  - cluster->r) +
-                             fast_abs(img_quad_row[4 * v + 1] - cluster->g) +
-                             fast_abs(img_quad_row[4 * v + 2] - cluster->b)
+                            (int)dists[v] ==
+                            ((int)spatial_dist_patch[patch_memory_width * i + (j + v)] +
+                             ((fast_abs<int>(img_quad_row[4 * v + 0]  - cluster->r) +
+                               fast_abs<int>(img_quad_row[4 * v + 1] - cluster->g) +
+                               fast_abs<int>(img_quad_row[4 * v + 2] - cluster->b)) << quantize_level)
                             )
                         );
                     }
@@ -371,24 +374,21 @@ static void slic_assign_cluster_oriented(Context *context) {
 #endif
                 // min-assignment
                 // Race condition is here. But who cares?
-                __m256i min_assignment_vec = _mm256_min_epu32(_mm256_loadu_si256((__m256i*)assignment_row), assignment_value_vec);
-                _mm256_storeu_si256((__m256i*)assignment_row, min_assignment_vec);
+                // __m256i min_assignment_vec = _mm256_min_epu32(_mm256_loadu_si256((__m256i*)assignment_row), assignment_value_vec);
+                // _mm256_storeu_si256((__m256i*)assignment_row, min_assignment_vec);
+                ALIGN_SIMD uint32_t calcd_values[8];
+                _mm256_store_si256((__m256i *)calcd_values, assignment_value_vec);
+
+                const int max_V = my_min(patch_virtual_width - j, 8);
+                for (int k = 0; k < max_V; k++) {
+                    if (assignment_row[k] > calcd_values[k]) {
+                        assignment_row[k] = calcd_values[k];
+                    }
+                }
             }
         }
     }
     auto t2 = Clock::now();
-
-    simd_helper::free_aligned_array(spatial_dist_patch);
-
-    // Clean up: Drop distance part in assignment and let only cluster numbers remain
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < assignment_memory_width; j++) {
-            aligned_assignment[i * assignment_memory_width + j] &= 0x0000FFFF; // drop the leading 2 bytes
-        }
-    }
-
-    std::cerr << "Patch allocation: " << std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count() << "us \n";
     std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 }
 
@@ -398,7 +398,7 @@ static void slic_assign(Context *context) {
     }
 }
 
-static void slic_update_clusters(Context *context) {
+static void slic_update_clusters(Context *context, bool reset_assignment) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
@@ -416,24 +416,26 @@ static void slic_update_clusters(Context *context) {
 
     #pragma omp parallel
     {
-        int local_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
+        ALIGN_SIMD uint32_t local_acc_vec[K][8]; // sum of [y, x, r, g, b] in cluster
         int local_num_cluster_members[K];
         std::fill_n(local_num_cluster_members, K, 0);
-        std::fill_n((int*)local_acc_vec, K * 5, 0);
+        std::fill_n((int*)local_acc_vec, K * 8, 0);
         #pragma omp for collapse(2)
         for (int i = 0; i < H; i++) {
-            for (int j = 0; j < assignment_memory_width; j++) {
-                int img_base_index = 4 * (quad_image_memory_width * i + j);
+            for (int j = 0; j < W; j++) {
+                int img_base_index = quad_image_memory_width * i + 4 * j;
                 int assignment_index = assignment_memory_width * i + j;
 
-                cluster_no_t cluster_no = (cluster_no_t)(aligned_assignment[assignment_index]);
-                if (cluster_no == 0xFFFF) continue;
-                local_num_cluster_members[cluster_no]++;
-                local_acc_vec[cluster_no][0] += i;
-                local_acc_vec[cluster_no][1] += j;
-                local_acc_vec[cluster_no][2] += aligned_quad_image[img_base_index];
-                local_acc_vec[cluster_no][3] += aligned_quad_image[img_base_index + 1];
-                local_acc_vec[cluster_no][4] += aligned_quad_image[img_base_index + 2];
+                cluster_no_t cluster_no = (cluster_no_t)(aligned_assignment[assignment_index] & 0x0000FFFF);
+                if (reset_assignment) aligned_assignment[assignment_index] = 0xFFFFFFFF;
+                if (cluster_no != 0xFFFF) {
+                    local_num_cluster_members[cluster_no]++;
+                    local_acc_vec[cluster_no][0] += i;
+                    local_acc_vec[cluster_no][1] += j;
+                    local_acc_vec[cluster_no][2] += aligned_quad_image[img_base_index];
+                    local_acc_vec[cluster_no][3] += aligned_quad_image[img_base_index + 1];
+                    local_acc_vec[cluster_no][4] += aligned_quad_image[img_base_index + 2];
+                }
             }
         }
 
@@ -547,7 +549,7 @@ extern "C" {
     static void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, int assignment_memory_width, uint32_t* aligned_assignment) {
         if (K <= 0) return;
 
-        uint8_t *visited = new uint8_t[H * W];
+        uint8_t *visited = new uint8_t[H * assignment_memory_width];
         std::fill_n(visited, H * W, 0);
 
         for (int i = 0; i < H; i++) {
@@ -574,13 +576,13 @@ extern "C" {
 
                     int index_j = index % W;
                     // up
-                    if (index > W) {
-                        stack.push_back(index - W);
+                    if (index > assignment_memory_width) {
+                        stack.push_back(index - assignment_memory_width);
                     }
 
                     // down
-                    if (index + W < H * W) {
-                        stack.push_back(index + W);
+                    if (index + assignment_memory_width < H * assignment_memory_width) {
+                        stack.push_back(index + assignment_memory_width);
                     }
 
                     // left
@@ -614,6 +616,7 @@ extern "C" {
     }
 
     void do_slic(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
+
         Context context;
         init_context(&context);
         context.image = image;
@@ -630,7 +633,6 @@ extern "C" {
         context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next(W * 4);
 
         uint8_t* aligned_quad_image = simd_helper::alloc_aligned_array<uint8_t>(H * quad_image_memory_width);
-        static int count = 0;
         for (int i = 0; i < H ; i++) {
             for (int j = 0; j < W; j++) {
                 for (int k = 0; k < 3; k++) {
@@ -641,13 +643,32 @@ extern "C" {
         context.aligned_quad_image = aligned_quad_image;
         uint32_t assignment_memory_width = simd_helper::align_to_next(W);
         uint32_t *aligned_assignment = simd_helper::alloc_aligned_array<uint32_t>(H * assignment_memory_width);
+        context.assignment_memory_width = assignment_memory_width;
         context.aligned_assignment = aligned_assignment;
+
+        prepare_spatial(&context);
+
+        // Take advantage of aligned_assignment being aligned
+        {
+            auto t1 = Clock::now();
+            __m256i constant = _mm256_set1_epi32(0xFFFFFFFF);
+            #pragma omp parallel for
+            for (int i = 0; i < H; i++) {
+                #pragma GCC unroll(8)
+                for (int j = 0; j < W; j += 8) {
+                    _mm256_store_si256((__m256i *)(aligned_assignment + assignment_memory_width * i + j), constant);
+                }
+            }
+            auto t2 = Clock::now();
+            std::cerr << "Assignment Initialization " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        }
+
 
         for (int i = 0; i < max_iter; i++) {
             auto t1 = Clock::now();
             slic_assign(&context);
             auto t2 = Clock::now();
-            slic_update_clusters(&context);
+            slic_update_clusters(&context, i + 1 < max_iter);
             auto t3 = Clock::now();
             std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
             std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
@@ -663,15 +684,16 @@ extern "C" {
             auto t1 = Clock::now();
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
-                    assignment[W * i + j] = context.aligned_assignment[context.assignment_memory_width * i + j];
+                    assignment[W * i + j] = context.aligned_assignment[context.assignment_memory_width * i + j] & 0x0000FFFF;
                 }
             }
             auto t2 = Clock::now();
             std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
         }
 
-
+        std::cerr << "Freeing context" <<std::endl;
         free_context(&context);
+        std::cerr << "Freeing context. done." <<std::endl;
     }
 }
 
@@ -682,13 +704,12 @@ extern "C" {
 #include <chrono>
 #include <fstream>
 #include <memory>
-#include <iostream>
 typedef std::chrono::high_resolution_clock Clock;
 int main(int argc, char** argv) {
     int K = 100;
     int compactness = 5;
     int max_iter = 2;
-    int quantize_level = 7;
+    int quantize_level = 6;
     try { 
         if (argc > 1) {
             K = std::stoi(std::string(argv[1]));
