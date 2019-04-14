@@ -32,6 +32,7 @@
 *.app
 
 cfast_slic.c
+cfast_slic.cpp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -71,7 +71,7 @@ def _check_avx2():
 
 
 extra_compile_args = []
-extra_link_args = ["-lstdc++"]
+extra_link_args = []
 if platform.system() != 'Windows':
     if _check_openmp():
         extra_compile_args.append('-fopenmp')
@@ -81,6 +81,7 @@ if platform.system() != 'Windows':
         extra_compile_args.append("-DUSE_AVX2")
         # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
+
 
 
 
@@ -111,7 +112,7 @@ setup(
                 sources=["fast-slic.cpp", "fast-slic-avx2.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
-                language='c++11',
+                language="c++",
             ),
         ]
     )
