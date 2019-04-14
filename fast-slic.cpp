@@ -214,7 +214,7 @@ __m256i get_assignment_value_vec(
     {
         uint8_t s[32];
         _mm256_storeu_si256((__m256i *)s, image_segment);
-        for (int v = 0; v < 32; v++) {
+        for (int v = 0; v < 4 * my_min(8, j - patch_virtual_width); v++) {
             if (s[v] != img_quad_row[v]) {
                 abort();
             }
@@ -401,7 +401,6 @@ static void slic_assign_cluster_oriented(Context *context) {
                 // Race condition is here. But who cares?
                 __m256i min_assignment_vec = _mm256_min_epu32(_mm256_loadu_si256((__m256i*)assignment_row), assignment_value_vec);
                 _mm256_storeu_si256((__m256i*)assignment_row, min_assignment_vec);
-
             }
 
             if (patch_virtual_width_multiple8 < patch_virtual_width) {
@@ -458,7 +457,7 @@ static void slic_update_clusters(Context *context, bool reset_assignment) {
 
                 cluster_no_t cluster_no = (cluster_no_t)(aligned_assignment[assignment_index] & 0x0000FFFF);
                 if (reset_assignment) aligned_assignment[assignment_index] = 0xFFFFFFFF;
-                if (cluster_no != 0xFFFF) {
+                if (cluster_no != 0xFFFF && cluster_no < K) {
                     local_num_cluster_members[cluster_no]++;
                     local_acc_vec[cluster_no][0] += i;
                     local_acc_vec[cluster_no][1] += j;

@@ -63,7 +63,7 @@ namespace simd_helper {
     static T* alloc_aligned_array(std::size_t count) {
         std::size_t size = count * sizeof(T);
         std::size_t alignment = Alignment;
-        uintptr_t r = (uintptr_t)malloc(size + --alignment + sizeof(uintptr_t));
+        uintptr_t r = (uintptr_t)calloc(size + --alignment + sizeof(uintptr_t), 1);
         uintptr_t t = r + sizeof(uintptr_t);
         uintptr_t o =(t + alignment) & ~(uintptr_t)alignment;
         if (!r) return NULL;
