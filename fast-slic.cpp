@@ -236,7 +236,7 @@ __m256i get_assignment_value_vec(
         // asm("int $3");
         uint16_t shorts[8];
         _mm_storeu_si128((__m128i *)shorts, color_dist_vec__narrow);
-        for (int v = 0; v < 8; v++) {
+        for (int v = 0; v < my_min(8, j - patch_virtual_width); v++) {
             int dr = fast_abs<int>((int)img_quad_row[4 * v + 0] - (int)cluster->r);
             int dg = fast_abs<int>((int)img_quad_row[4 * v + 1] - (int)cluster->g);
             int db= fast_abs<int>((int)img_quad_row[4 * v + 2] - (int)cluster->b);
