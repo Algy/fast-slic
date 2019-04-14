@@ -44,11 +44,6 @@ static T round_int(T numer, T denom) {
     return (numer + (denom / 2)) / denom;
 }
 
-struct ClusterPixel {
-    uint16_t cluster_nos[9];
-    int8_t last_index;
-};
-
 struct Context {
     const uint8_t* __restrict__ image;
     uint8_t* __restrict__ aligned_quad_image; // copied image
@@ -66,7 +61,6 @@ struct Context {
     int assignment_memory_width; // memory width of aligned_assignment
     uint16_t* __restrict__ spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
     uint16_t* __restrict__ spatial_dist_patch;
-    ClusterPixel* __restrict__ cluster_boxes;
 };
 
 static void init_context(Context *context) {
@@ -122,9 +116,6 @@ static void prepare_spatial(Context *context) {
 }
 
 static void free_context(Context *context) {
-    std::cerr << "Freeing Cluster boxes" <<std::endl;
-    if (context->cluster_boxes)
-        delete [] context->cluster_boxes;
     std::cerr << "Freeing Spatial normalize cache" <<std::endl;
     if (context->spatial_normalize_cache)
         delete [] context->spatial_normalize_cache;
@@ -142,7 +133,7 @@ static void free_context(Context *context) {
     }
 }
 
-uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
+static uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
 {
     static const uint32_t MASKS[] = {0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF};
     static const uint32_t SHIFTS[] = {1, 2, 4, 8};
@@ -166,17 +157,17 @@ uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
 
 
 static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
-    // return ((uint64_t)(y / (2 * S)) << 48) + ((uint64_t)(x / (2 * S)) << 32) + (uint32_t)calc_z_order(y, x);
     return calc_z_order(y, x);
-    // return y + x;
 }
 
 
-struct sort_cmp {
-    int16_t S;
-    sort_cmp(int16_t S) : S(S) {};
-    inline bool operator() (const Cluster * lhs, const Cluster * rhs) {
-        return get_sort_value(lhs->y, lhs->x, S) < get_sort_value(rhs->y, rhs->x, S);
+struct ZOrderTuple {
+    uint32_t score;
+    const Cluster* cluster;
+
+    ZOrderTuple(uint32_t score, const Cluster* cluster) : score(score), cluster(cluster) {};
+    bool operator<(const ZOrderTuple &other) {
+        return score < other.score;
     }
 };
 
@@ -331,17 +322,24 @@ static void slic_assign_cluster_oriented(Context *context) {
 
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
-    std::vector<const Cluster *> cluster_sorted_ptrs;
+    auto t0 = Clock::now();
+
+    std::vector<ZOrderTuple> cluster_sorted_tuples;
     {
-        for (int k = 0; k < K; k++) { cluster_sorted_ptrs.push_back(&clusters[k]); }
-        std::stable_sort(cluster_sorted_ptrs.begin(), cluster_sorted_ptrs.end(), sort_cmp(S));
+        cluster_sorted_tuples.reserve(K);
+        for (int k = 0; k < K; k++) {
+            const Cluster* cluster = &clusters[k];
+            uint32_t score = get_sort_value(cluster->y, cluster->x, S);
+            cluster_sorted_tuples.push_back(ZOrderTuple(score, cluster));
+        }
+        std::sort(cluster_sorted_tuples.begin(), cluster_sorted_tuples.end());
     }
 
     auto t1 = Clock::now();
  
     #pragma omp parallel for schedule(static)
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
-        const Cluster *cluster = cluster_sorted_ptrs[cluster_sorted_idx];
+        const Cluster *cluster = cluster_sorted_tuples[cluster_sorted_idx].cluster;
         cluster_no_t cluster_number = cluster->number;
         const int16_t cluster_y = my_min<int16_t>(my_max<int16_t>(cluster->y, S), H - S - 1), cluster_x = my_min<int16_t>(my_max<int16_t>(cluster->x, S), W - S - 1);
         const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
@@ -421,6 +419,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         }
     }
     auto t2 = Clock::now();
+    std::cerr << "Sort: " << std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count() << "us \n";
     std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 }
 
