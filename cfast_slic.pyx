@@ -59,7 +59,12 @@ cdef class BaseSlicModel:
         cdef int K = self.num_components
 
         if H > 0 and W > 0:
-            self._do_c_slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
+            if self._get_name() == "standard":
+                cfast_slic.fast_slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
+            elif self._get_name() == "avx2":
+                cfast_slic.fast_slic_initialize_clusters_avx2(H, W, K, &image[0, 0, 0], self._c_clusters)
+            else:
+                raise RuntimeError("Not reachable")
         else:
             raise ValueError("image cannot be empty")
         self.initialized = True
@@ -76,17 +81,32 @@ cdef class BaseSlicModel:
         cdef np.ndarray[np.uint32_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint32)
         cdef cfast_slic.Cluster* c_clusters = self._c_clusters
 
-        self._do_c_slic_iterate(
-            H,
-            W,
-            K,
-            compactness_shift,
-            quantize_level,
-            max_iter,
-            &image[0, 0, 0],
-            c_clusters,
-            &assignments[0, 0]
-        )
+        if self._get_name() == 'standard':
+            cfast_slic.fast_slic_iterate(
+                H,
+                W,
+                K,
+                compactness_shift,
+                quantize_level,
+                max_iter,
+                &image[0, 0, 0],
+                c_clusters,
+                &assignments[0, 0]
+            )
+        elif self._get_name() == 'avx2':
+            cfast_slic.fast_slic_iterate_avx2(
+                H,
+                W,
+                K,
+                compactness_shift,
+                quantize_level,
+                max_iter,
+                &image[0, 0, 0],
+                c_clusters,
+                &assignments[0, 0]
+            )
+        else:
+            raise RuntimeError("Not reachable")
         result = assignments.astype(np.int32)
         result[result == 0xFFFF] = -1
         return result
@@ -95,49 +115,16 @@ cdef class BaseSlicModel:
         if self._c_clusters is not NULL:
             free(self._c_clusters)
 
-    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
+    cpdef _get_name(self):
         raise NotImplementedError
-
-    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
-        raise NotImplementedError
-
 
 cdef class SlicModel(BaseSlicModel):
-    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
-        cfast_slic.fast_slic_initialize_clusters(H, W, K, image, self._c_clusters)
-
-    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
-        with nogil:
-            cfast_slic.fast_slic_iterate(
-                H,
-                W,
-                K,
-                compactness_shift,
-                quantize_level,
-                max_iter,
-                image,
-                clusters,
-                assignment
-            )
+    cpdef _get_name(self):
+        return "standard"
 
 cdef class SlicModelAvx2(BaseSlicModel):
-    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
-        cfast_slic.fast_slic_initialize_clusters_avx2(H, W, K, image, self._c_clusters)
-
-    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
-        with nogil:
-            cfast_slic.fast_slic_iterate_avx2(
-                H,
-                W,
-                K,
-                compactness_shift,
-                quantize_level,
-                max_iter,
-                image,
-                clusters,
-                assignment
-            )
-
+    cpdef _get_name(self):
+        return "avx2"
 
 
 def slic_supports_arch(name):

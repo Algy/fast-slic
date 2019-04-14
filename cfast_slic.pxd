@@ -32,8 +32,8 @@ cdef class BaseSlicModel:
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, uint8_t compactness_shift, uint8_t quantize_level)
     cdef _get_clusters(self)
-    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters)
-    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment)
+    cpdef _get_name(self)
+
 
 cdef class SlicModel(BaseSlicModel):
     pass

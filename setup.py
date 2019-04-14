@@ -79,7 +79,7 @@ if platform.system() != 'Windows':
 
     if _check_avx2():
         extra_compile_args.append("-DUSE_AVX2")
-        extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
+        # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
 
 

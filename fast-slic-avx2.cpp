@@ -648,7 +648,6 @@ extern "C" {
         }
     }
     void fast_slic_iterate_avx2(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
-
         Context context;
         init_context(&context);
         context.image = image;
