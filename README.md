@@ -77,5 +77,6 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 ## TODO
  - [ ] Remove or merge small blobs
  - [ ] Include simple CRF utilities
+ - [ ] Add tests
  - [x] More scalable parallel loop in cluster assignment. I suspect there is false sharing problem in the loop.
  - [x] would be great if I can optimize loop more. SIMD?
