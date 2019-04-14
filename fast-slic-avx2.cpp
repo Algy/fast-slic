@@ -167,10 +167,11 @@ struct ZOrderTuple {
     const Cluster* cluster;
 
     ZOrderTuple(uint32_t score, const Cluster* cluster) : score(score), cluster(cluster) {};
-    bool operator<(const ZOrderTuple &other) {
-        return score < other.score;
-    }
 };
+
+bool operator<(const ZOrderTuple &lhs, const ZOrderTuple &rhs) {
+    return lhs.score < rhs.score;
+}
 
 
 #include <string>
