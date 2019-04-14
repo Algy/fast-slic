@@ -193,7 +193,8 @@ static inline
 __m256i get_assignment_value_vec(
         const Cluster* cluster, uint8_t quantize_level, const uint16_t* __restrict__ spatial_dist_patch,
         int patch_memory_width,
-        int i, int j, const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
+        int i, int j, int patch_virtual_width,
+        const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         __m256i cluster_number_vec, __m256i cluster_color_vec,
         __m256i color_shuffle_mask, __m256i color_gather_mask, __m256i color_swap_mask
         ) {
@@ -260,7 +261,7 @@ __m256i get_assignment_value_vec(
     {
         uint16_t dists[8];
         _mm_storeu_si128((__m128i*)dists, dist_vec__narrow);
-        for (int v = 0; v < 8; v++) {
+        for (int v = 0; v < my_min(8, j - patch_virtual_width); v++) {
             assert(
                     (int)dists[v] ==
                     ((int)spatial_dist_patch[patch_memory_width * i + (j + v)] +
@@ -382,7 +383,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         quantize_level, \
         spatial_dist_patch, \
         patch_memory_width, \
-        i, j, \
+        i, j, patch_virtual_width, \
         img_quad_row, \
         spatial_dist_patch_row, \
         cluster_number_vec, \
