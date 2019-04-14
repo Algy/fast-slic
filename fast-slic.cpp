@@ -197,6 +197,9 @@ __m256i get_assignment_value_vec(
         __m256i cluster_number_vec, __m256i cluster_color_vec,
         __m256i color_shuffle_mask, __m256i color_gather_mask, __m256i color_swap_mask
         ) {
+#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+    assert((long long)(spatial_dist_patch_row) % 16 == 0);
+#endif
     // image_segment: 32 elements of uint8_t 
     // spatial_dist_vec__narrow: 8 elements of uint16_t (128-bit narrow vector)
     // color_dist_vec, dist_vec: 8 elements of uint16_t (trailing 8 16-bit cells are ignored)
@@ -359,6 +362,7 @@ static void slic_assign_cluster_oriented(Context *context) {
             2, 0
         );
 
+
         for (int16_t i = 0; i < patch_height; i++) {
             const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
@@ -368,43 +372,43 @@ static void slic_assign_cluster_oriented(Context *context) {
             const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
             uint32_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
 
+#define ASSIGNMENT_VALUE_GETTER_BODY const uint16_t* spatial_dist_patch_row; const uint8_t* img_quad_row; uint32_t* assignment_row; __m256i assignment_value_vec; { \
+    img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
+    spatial_dist_patch_row = spatial_dist_patch_base_row + j; /* Spatial distance patch is aligned */ \
+    spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_row, 16); \
+    assignment_row = assignment_base_row + j; /* unaligned */ \
+    assignment_value_vec = get_assignment_value_vec( \
+        cluster, \
+        quantize_level, \
+        spatial_dist_patch, \
+        patch_memory_width, \
+        i, j, \
+        img_quad_row, \
+        spatial_dist_patch_row, \
+        cluster_number_vec, \
+        cluster_color_vec, \
+        color_shuffle_mask, \
+        color_gather_mask, \
+        color_swap_mask \
+    ); \
+}
+            const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
             // 32(batch size) / 4(rgba quad) = stride 8 
-            for (int j = 0; j < patch_virtual_width; j += 8) {
-                // Image rows are not aligned due to x_lo
-                const uint8_t* img_quad_row = img_quad_base_row + 4 * j;
-                // Spatial distance patch is aligned
-                const uint16_t* spatial_dist_patch_row = spatial_dist_patch_base_row + j; // sizeof(uint16_t) * 8 == 16
-
-                spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_row, 16);
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-                assert((long long)(spatial_dist_patch_row) % 16 == 0);
-#endif
-                // unaligned
-                uint32_t* assignment_row = assignment_base_row + j;
-
-                __m256i assignment_value_vec = get_assignment_value_vec(
-                    cluster,
-                    quantize_level,
-                    spatial_dist_patch,
-                    patch_memory_width,
-                    i, j,
-                    img_quad_row,
-                    spatial_dist_patch_row,
-                    cluster_number_vec,
-                    cluster_color_vec,
-                    color_shuffle_mask,
-                    color_gather_mask,
-                    color_swap_mask
-                );
-
+            for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
+                ASSIGNMENT_VALUE_GETTER_BODY
                 // min-assignment
                 // Race condition is here. But who cares?
-                // __m256i min_assignment_vec = _mm256_min_epu32(_mm256_loadu_si256((__m256i*)assignment_row), assignment_value_vec);
-                // _mm256_storeu_si256((__m256i*)assignment_row, min_assignment_vec);
+                __m256i min_assignment_vec = _mm256_min_epu32(_mm256_loadu_si256((__m256i*)assignment_row), assignment_value_vec);
+                _mm256_storeu_si256((__m256i*)assignment_row, min_assignment_vec);
+
+            }
+
+            if (patch_virtual_width_multiple8 < patch_virtual_width) {
+                int j = patch_virtual_width_multiple8;
+                ASSIGNMENT_VALUE_GETTER_BODY
                 ALIGN_SIMD uint32_t calcd_values[8];
                 _mm256_store_si256((__m256i *)calcd_values, assignment_value_vec);
-
-                const int max_V = my_min(patch_virtual_width - j, 8);
+                const int max_V = patch_virtual_width - j;
                 for (int k = 0; k < max_V; k++) {
                     if (assignment_row[k] > calcd_values[k]) {
                         assignment_row[k] = calcd_values[k];
