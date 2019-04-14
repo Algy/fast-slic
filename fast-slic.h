@@ -8,7 +8,7 @@
 extern "C" {
 #endif
     void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters);
-    void fast_slic_iterate(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment);
+    void fast_slic_iterate(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment);
 #ifdef __cplusplus
 }
 #endif

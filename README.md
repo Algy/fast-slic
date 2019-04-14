@@ -27,7 +27,7 @@ from PIL import Image
 with Image.open("fish.jpg") as f:
    image = np.array(f)
 # import cv2; image = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)   # You can convert the image to CIELAB space if you need.
-slic = Slic(num_components=200, compactness_shift=6)
+slic = Slic(num_components=200, compactness=6)
 assignment = slic.iterate(image) # Cluster Map
 print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
@@ -48,7 +48,7 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 (RGB-to-CIELAB conversion time is not included. Tested with Ryzen 2600x 6C12T 4.0Hz O.C.)
 
 ## Known Issues
- * If you give too large value of `compactness_shift`, score variables overflow and you get an artistic painting of diamond shaped boxes rather than superpixels you want.
+ * If you give too large value of `compactness`, score variables overflow and you get an artistic painting of diamond shaped boxes rather than superpixels you want.
 
 ## TODO
  - [ ] Remove or merge small blobs

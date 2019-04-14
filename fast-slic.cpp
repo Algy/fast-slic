@@ -57,7 +57,7 @@ struct Context {
     int W;
     int K;
     int16_t S;
-    uint8_t compactness_shift;
+    uint8_t compactness;
     uint8_t quantize_level;
     Cluster* clusters;
     uint32_t* assignment;
@@ -133,7 +133,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
-    auto compactness_shift = context->compactness_shift;
+    auto compactness = context->compactness;
     auto clusters = context->clusters;
     auto image = context->image;
     auto assignment = context->assignment;
@@ -151,7 +151,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     if (!context->spatial_normalize_cache) {
         context->spatial_normalize_cache = new uint16_t[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
-            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness_shift << quantize_level) / S / 2 * 3);
+            context->spatial_normalize_cache[x] = (uint16_t)(((uint32_t)x * compactness << quantize_level) / S / 2 * 3);
         }
     }
     const uint16_t* spatial_normalize_cache = context->spatial_normalize_cache;
@@ -453,7 +453,7 @@ extern "C" {
         }
     }
 
-    void fast_slic_iterate(int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
+    void fast_slic_iterate(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
 
         Context context;
         init_context(&context);
@@ -463,7 +463,7 @@ extern "C" {
         context.W = W;
         context.K = K;
         context.S = (int16_t)sqrt(H * W / K);
-        context.compactness_shift = compactness_shift;
+        context.compactness = compactness;
         context.quantize_level = quantize_level;
         context.clusters = clusters;
         context.assignment = assignment;
