@@ -87,7 +87,7 @@ if platform.system() != 'Windows':
 
 setup(
     name="fast-slic",
-    version="0.2.1",
+    version="0.2.2",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
