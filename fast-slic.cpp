@@ -347,7 +347,6 @@ static void slic_assign_cluster_oriented(Context *context) {
             6, 4, 2, 0
         );
 
-
         for (int16_t i = 0; i < patch_height; i++) {
             const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
@@ -377,6 +376,8 @@ static void slic_assign_cluster_oriented(Context *context) {
 }
             const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
             // 32(batch size) / 4(rgba quad) = stride 8 
+            #pragma unroll(4)
+            #pragma GCC unroll(4)
             for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
                 ASSIGNMENT_VALUE_GETTER_BODY
                 // min-assignment
@@ -665,7 +666,8 @@ extern "C" {
             __m256i constant = _mm256_set1_epi32(0xFFFFFFFF);
             #pragma omp parallel for
             for (int i = 0; i < H; i++) {
-                #pragma GCC unroll(8)
+                #pragma unroll(4)
+                #pragma GCC unroll(4)
                 for (int j = 0; j < W; j += 8) {
                     _mm256_store_si256((__m256i *)(aligned_assignment + assignment_memory_width * i + j), constant);
                 }
