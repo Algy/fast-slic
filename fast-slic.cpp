@@ -304,7 +304,7 @@ static void slic_assign_cluster_oriented(Context *context) {
                 }
 #endif
 
-                // TODO: reduce number of operations
+                // Slow version
                 __m256i first_sadbw = _mm256_mpsadbw_epu8(image_segment, cluster_color_vec, 0);
                 __m256i f = _mm256_permutevar8x32_epi32(_mm256_shuffle_epi8(first_sadbw, color_shuffle_mask), color_gather_mask);
                 __m256i swapped_image_segment = _mm256_shuffle_epi32(image_segment, 1 * 64 + 0 * 16 + 3 * 4 +  2);
@@ -312,9 +312,7 @@ static void slic_assign_cluster_oriented(Context *context) {
                 __m256i g = _mm256_permutevar8x32_epi32(_mm256_shuffle_epi8(second_sadbw, color_shuffle_mask), color_gather_mask);
                 __m256i combined_0213 = _mm256_unpacklo_epi64(f, g);
                 __m256i color_dist_vec = _mm256_permutevar8x32_epi32(combined_0213, color_swap_mask);
-                __m128i color_dist_vec__narrow = _mm256_castsi256_si128(color_dist_vec);
-                color_dist_vec__narrow = _mm_slli_epi16(color_dist_vec__narrow, quantize_level);
-
+                __m128i color_dist_vec__narrow = _mm_slli_epi32(_mm256_castsi256_si128(color_dist_vec), quantize_level);
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
                 {
                     // asm("int $3");
