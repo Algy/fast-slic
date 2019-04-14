@@ -68,7 +68,10 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 (RGB-to-CIELAB conversion time is not included. Tested with Ryzen 2600x 6C12T 4.0Hz O.C.)
 
 ## Known Issues
-
+ * `SlicAvx2` is kind of clumsy at side and corner processing. This is intended behavior to remove overhead of required branches for boundary check. If this is problem to you, put paddings of size of `ceil(sqrt(image_height * image_width / num_components)` around an image.
+ * `compactness` is allocated as an 8-byte integer internally, so its value cannot exceed 255. You will never need more than 255 compactness in practice.
+ 
+ 
 ## Experimental
  * To push the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
 ## TODO
