@@ -10,7 +10,7 @@ from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy, memset
 
 
-cdef class SlicModel:
+cdef class BaseSlicModel:
     def __cinit__(self, int num_components):
         if num_components >= 65535:
             raise ValueError("num_components cannot exceed 65535")
@@ -59,8 +59,7 @@ cdef class SlicModel:
         cdef int K = self.num_components
 
         if H > 0 and W > 0:
-            with nogil:
-                cfast_slic.slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
+            self._do_c_slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
         else:
             raise ValueError("image cannot be empty")
         self.initialized = True
@@ -77,18 +76,17 @@ cdef class SlicModel:
         cdef np.ndarray[np.uint32_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint32)
         cdef cfast_slic.Cluster* c_clusters = self._c_clusters
 
-        with nogil:
-            cfast_slic.do_slic(
-                H,
-                W,
-                K,
-                compactness_shift,
-                quantize_level,
-                max_iter,
-                &image[0, 0, 0],
-                c_clusters,
-                &assignments[0, 0]
-            )
+        self._do_c_slic_iterate(
+            H,
+            W,
+            K,
+            compactness_shift,
+            quantize_level,
+            max_iter,
+            &image[0, 0, 0],
+            c_clusters,
+            &assignments[0, 0]
+        )
         result = assignments.astype(np.int32)
         result[result == 0xFFFF] = -1
         return result
@@ -96,4 +94,54 @@ cdef class SlicModel:
     def __dealloc__(self):
         if self._c_clusters is not NULL:
             free(self._c_clusters)
+
+    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
+        raise NotImplementedError
+
+    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
+        raise NotImplementedError
+
+
+cdef class SlicModel(BaseSlicModel):
+    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
+        cfast_slic.fast_slic_initialize_clusters(H, W, K, image, self._c_clusters)
+
+    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
+        with nogil:
+            cfast_slic.fast_slic_iterate(
+                H,
+                W,
+                K,
+                compactness_shift,
+                quantize_level,
+                max_iter,
+                image,
+                clusters,
+                assignment
+            )
+
+cdef class SlicModelAvx2(BaseSlicModel):
+    cdef _do_c_slic_initialize_clusters(self, int H, int W, int K, const uint8_t* image, Cluster* clusters):
+        cfast_slic.fast_slic_initialize_clusters_avx2(H, W, K, image, self._c_clusters)
+
+    cdef _do_c_slic_iterate(self, int H, int W, int K, uint8_t compactness_shift, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment):
+        with nogil:
+            cfast_slic.fast_slic_iterate_avx2(
+                H,
+                W,
+                K,
+                compactness_shift,
+                quantize_level,
+                max_iter,
+                image,
+                clusters,
+                assignment
+            )
+
+
+
+def slic_supports_arch(name):
+    if name == 'avx2':
+        return cfast_slic.fast_slic_supports_avx2() == 1
+    return False
 
