@@ -318,18 +318,18 @@ static void slic_update_clusters(Context *context) {
     auto clusters = context->clusters;
     auto assignment = context->assignment;
 
-    int num_cluster_members[K];
-    int cluster_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
+    int *num_cluster_members = new int[K];
+    int *cluster_acc_vec = new int[K * 5]; // sum of [y, x, r, g, b] in cluster
 
     std::fill_n(num_cluster_members, K, 0);
-    std::fill_n((int *)cluster_acc_vec, K * 5, 0);
+    std::fill_n(cluster_acc_vec, K * 5, 0);
 
     #pragma omp parallel
     {
-        int local_acc_vec[K][5]; // sum of [y, x, r, g, b] in cluster
-        int local_num_cluster_members[K];
+        int *local_acc_vec = new int [K * 5]; // sum of [y, x, r, g, b] in cluster
+        int *local_num_cluster_members = new int[K];
         std::fill_n(local_num_cluster_members, K, 0);
-        std::fill_n((int*)local_acc_vec, K * 5, 0);
+        std::fill_n(local_acc_vec, K * 5, 0);
         #pragma omp for collapse(2)
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
@@ -339,11 +339,11 @@ static void slic_update_clusters(Context *context) {
                 cluster_no_t cluster_no = (cluster_no_t)(assignment[base_index]);
                 if (cluster_no == 0xFFFF) continue;
                 local_num_cluster_members[cluster_no]++;
-                local_acc_vec[cluster_no][0] += i;
-                local_acc_vec[cluster_no][1] += j;
-                local_acc_vec[cluster_no][2] += image[img_base_index];
-                local_acc_vec[cluster_no][3] += image[img_base_index + 1];
-                local_acc_vec[cluster_no][4] += image[img_base_index + 2];
+                local_acc_vec[5 * cluster_no + 0] += i;
+                local_acc_vec[5 * cluster_no + 1] += j;
+                local_acc_vec[5 * cluster_no + 2] += image[img_base_index];
+                local_acc_vec[5 * cluster_no + 3] += image[img_base_index + 1];
+                local_acc_vec[5 * cluster_no + 4] += image[img_base_index + 2];
             }
         }
 
@@ -351,11 +351,13 @@ static void slic_update_clusters(Context *context) {
         {
             for (int k = 0; k < K; k++) {
                 for (int dim = 0; dim < 5; dim++) {
-                    cluster_acc_vec[k][dim] += local_acc_vec[k][dim];
+                    cluster_acc_vec[5 * k + dim] += local_acc_vec[5 * k + dim];
                 }
                 num_cluster_members[k] += local_num_cluster_members[k];
             }
         }
+        delete [] local_acc_vec;
+        delete [] local_num_cluster_members;
     }
 
 
@@ -368,12 +370,14 @@ static void slic_update_clusters(Context *context) {
 
         // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
         // But, I intentionally used mean here for the sake of performance.
-        cluster->y = round_int(cluster_acc_vec[k][0], num_current_members);
-        cluster->x = round_int(cluster_acc_vec[k][1], num_current_members);
-        cluster->r = round_int(cluster_acc_vec[k][2], num_current_members);
-        cluster->g = round_int(cluster_acc_vec[k][3], num_current_members);
-        cluster->b = round_int(cluster_acc_vec[k][4], num_current_members);
+        cluster->y = round_int(cluster_acc_vec[5 * k + 0], num_current_members);
+        cluster->x = round_int(cluster_acc_vec[5 * k + 1], num_current_members);
+        cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
+        cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
+        cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
     }
+    delete [] num_cluster_members;
+    delete [] cluster_acc_vec;
 }
 
 

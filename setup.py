@@ -70,9 +70,10 @@ def _check_avx2():
     return result == 0
 
 
-extra_compile_args = ["-std=c++11"]
+extra_compile_args = []
 extra_link_args = []
 if platform.system() != 'Windows':
+    extra_compile_args.append("-std=c++11")
     if _check_openmp():
         extra_compile_args.append('-fopenmp')
         extra_link_args.append('-lgomp')

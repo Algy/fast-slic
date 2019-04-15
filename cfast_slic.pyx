@@ -91,7 +91,7 @@ cdef class BaseSlicModel:
                 max_iter,
                 &image[0, 0, 0],
                 c_clusters,
-                &assignments[0, 0]
+                <uint32_t *>&assignments[0, 0]
             )
         elif self._get_name() == 'avx2':
             cfast_slic.fast_slic_iterate_avx2(
@@ -103,7 +103,7 @@ cdef class BaseSlicModel:
                 max_iter,
                 &image[0, 0, 0],
                 c_clusters,
-                &assignments[0, 0]
+                <uint32_t *>&assignments[0, 0]
             )
         else:
             raise RuntimeError("Not reachable")
