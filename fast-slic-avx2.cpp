@@ -14,6 +14,10 @@
 
 #define CHARBIT 8
 
+#ifdef _MSC_VER
+#define __restrict__ __restrict
+#endif
+
 #ifdef USE_AVX2
 template <typename T>
 static inline T my_max(T x, T y) {
