@@ -50,7 +50,7 @@
 #ifndef _MSC_VER
 #define HINT_ALIGNED(variable) __builtin_assume_aligned(variable, Alignment)
 #define HINT_ALIGNED_AS(variable, alignment) __builtin_assume_aligned(variable, alignment)
-#elif
+#else
 #define HINT_ALIGNED(variable) variable
 #define HINT_ALIGNED_AS(variable, alignment) variable
 #endif
