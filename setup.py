@@ -42,32 +42,18 @@ def _check_openmp():
     return result == 0
 
 def _check_avx2():
-    import os, tempfile, subprocess, shutil    
-    avx2_test = \
-        r"""
-#include <immintrin.h>
-    int main() {
-        __m256i color_swap_mask =  _mm256_set_epi32(
-            7, 7, 7, 7,
-            6, 4, 2, 0
-        );
-        __m256i m = _mm256_slli_epi32(color_swap_mask, 1);
-        return 0;
-    }
-"""
-    tmpdir = tempfile.mkdtemp()
-    curdir = os.getcwd()
-    os.chdir(tmpdir)
-    filename = r'test_avx2.c'
-    with open(filename, 'w') as file:
-        file.write(avx2_test)
-    with open(os.devnull, 'w') as fnull:
-        result = subprocess.call([os.environ.get("CC") or 'cc', '-mavx2', filename],
-                                 stdout=fnull, stderr=fnull)
-    os.chdir(curdir)
-    #clean up
-    shutil.rmtree(tmpdir)
-    return result == 0
+    from cpuid.cpuid import CPUID
+    try:
+        # Invoke CPUID instruction with eax 0x7
+        # ECX bit 5: AVX2 support
+        # For more information, refer to https://en.wikipedia.org/wiki/CPUID
+        input_eax = 0x7
+        output_eax, output_ebx, output_ecx, output_edx = CPUID()(input_eax)
+        bits = bin(output_ebx)[::-1]
+        avx2_support = bits[5]
+        return avx2_support == '1'
+    except:
+        return False
 
 
 extra_compile_args = []
@@ -82,7 +68,11 @@ if platform.system() != 'Windows':
         extra_compile_args.append("-DUSE_AVX2")
         # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
-
+else:
+    if _check_avx2():
+        extra_compile_args.append("/DUSE_AVX2")
+        # extra_compile_args.append("/DFAST_SLIC_AVX2_FASTER")
+        extra_compile_args.append("/arch:AVX2")
 
 
 
