@@ -5,7 +5,7 @@ cimport numpy as np
 
 import numpy as np
 
-from libc.stdint cimport uint8_t
+from libc.stdint cimport uint8_t, int32_t, uint32_t
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy, memset
 
@@ -111,6 +111,18 @@ cdef class BaseSlicModel:
         result[result == 0xFFFF] = -1
         return result
 
+    cpdef get_connectivity(self, const int32_t[:,::1] assignments):
+        cdef int H = assignments.shape[0]
+        cdef int W = assignments.shape[1]
+        cdef int K = self.num_components
+        cdef int i, k;
+        cdef uint32_t neighbor
+
+        cdef Connectivity* conn;
+        with nogil:
+            conn = cfast_slic.fast_slic_get_connectivity(H, W, K, <const uint32_t *>&assignments[0, 0])
+        return NodeConnectivity.create(conn)
+
     def __dealloc__(self):
         if self._c_clusters is not NULL:
             free(self._c_clusters)
@@ -125,6 +137,29 @@ cdef class SlicModel(BaseSlicModel):
 cdef class SlicModelAvx2(BaseSlicModel):
     cpdef _get_name(self):
         return "avx2"
+
+cdef class NodeConnectivity:
+    @staticmethod
+    cdef create(Connectivity* conn):
+        cdef NodeConnectivity c = NodeConnectivity()
+        c._c_connectivity = conn
+        return c
+
+    cpdef tolist(self):
+        if self._c_connectivity is NULL:
+            return []
+        result = []
+        for k in range(self._c_connectivity.num_nodes):
+            k_neighbors = []
+            for i in range(self._c_connectivity.num_neighbors[k]):
+                neighbor = self._c_connectivity.neighbors[k][i]
+                k_neighbors.append(neighbor)
+            result.append(k_neighbors)
+        return result
+
+    def __dealloc__(self):
+        if self._c_connectivity is not NULL:
+            cfast_slic.fast_slic_free_connectivity(self._c_connectivity)
 
 
 def slic_supports_arch(name):

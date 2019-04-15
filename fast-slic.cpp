@@ -392,7 +392,6 @@ static void slic_update_clusters(Context *context) {
     delete [] cluster_acc_vec;
 }
 
-
 extern "C" {
     void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
 
@@ -502,6 +501,87 @@ extern "C" {
 
 
         free_context(&context);
+    }
+
+    static uint32_t symmetric_int_hash(uint32_t x, uint32_t y) {
+        /*
+        x = ((x >> 16) ^ x) * 0x45d9f3b;
+        x = ((x >> 16) ^ x) * 0x45d9f3b;
+        x = (x >> 16) ^ x;
+        */
+        return ((x * 0x1f1f1f1f) ^ y) +  ((y * 0x1f1f1f1f) ^ x);
+    }
+
+    Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint32_t *assignment) {
+        const static int max_conn = 12;
+        Connectivity* conn = new Connectivity();
+        conn->num_nodes = K;
+        conn->num_neighbors = new int[K];
+        conn->neighbors = new uint32_t*[K];
+        std::fill_n(conn->num_neighbors, K, 0);
+        std::fill_n(conn->neighbors, K, nullptr);
+
+        uint32_t *hashtable = new uint32_t[K];
+        std::fill_n(hashtable, K, 0);
+
+        for (int i = 0; i < K; i++) {
+            conn->neighbors[i] = new uint32_t[max_conn];
+        }
+
+        for (int i = 0; i < H - 1; i++) {
+            for (int j = 0; j < W - 1; j++) {
+                int base_index = W * i + j;
+                const uint32_t source = assignment[base_index];
+                int num_source_neighbors = conn->num_neighbors[source];
+                if (source >= (uint32_t)K) continue;
+                uint32_t* source_neighbors = conn->neighbors[source];
+
+#               define CONNECTIVITY_SEARCH(expr) do { \
+                    int target_index = expr; \
+                    const uint32_t target = assignment[target_index];\
+                    if (target >= (uint32_t)K || source == target) continue; \
+                    const int num_target_neighbors = conn->num_neighbors[target]; \
+                    if (num_source_neighbors >= max_conn || num_target_neighbors >= max_conn) continue; \
+                    uint32_t* target_neighbors = conn->neighbors[target]; \
+                    int hash_idx = symmetric_int_hash(source, target) % (K * 32); \
+                    if (hashtable[hash_idx / 32] & (1 << (hash_idx % 32))) { \
+                        bool exists = false; \
+                        for (int t = 0; t < num_source_neighbors; t++) { \
+                            if (source_neighbors[t] == target) { \
+                                exists = true; \
+                                break; \
+                            } \
+                        } \
+                        if (exists) continue; \
+                        for (int t = 0; t < num_target_neighbors; t++) { \
+                            if (target_neighbors[t] == source) { \
+                                exists = true; \
+                                break; \
+                            } \
+                        } \
+                        if (exists) continue; \
+                    } \
+                    target_neighbors[conn->num_neighbors[target]++] = source; \
+                    source_neighbors[num_source_neighbors++] = target; \
+                    hashtable[hash_idx / 32] |= (1 << (hash_idx % 32)); \
+                } while (0);
+                CONNECTIVITY_SEARCH(base_index + 1);
+                CONNECTIVITY_SEARCH(base_index + W);
+                conn->num_neighbors[source] = num_source_neighbors;
+            }
+        }
+
+        delete [] hashtable;
+        return conn;
+    }
+
+    void fast_slic_free_connectivity(Connectivity* conn) {
+        delete [] conn->num_neighbors;
+        for (int i = 0; i < conn->num_nodes; i++) {
+            delete [] conn->neighbors[i];
+        }
+        delete [] conn->neighbors;
+        delete conn;
     }
 }
 

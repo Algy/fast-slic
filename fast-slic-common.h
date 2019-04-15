@@ -20,4 +20,10 @@ typedef struct Cluster {
 
 } Cluster;
 
+typedef struct Connectivity {
+    int num_nodes;
+    int *num_neighbors;
+    uint32_t **neighbors;
+} Connectivity;
+
 #endif
