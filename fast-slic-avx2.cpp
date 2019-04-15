@@ -161,7 +161,7 @@ static uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
 }
 
 
-static uint64_t get_sort_value(int16_t y, int16_t x, int16_t S) {
+static uint32_t get_sort_value(int16_t y, int16_t x, int16_t S) {
     return calc_z_order(y, x);
 }
 
@@ -283,7 +283,7 @@ __m256i get_assignment_value_vec(
     #endif
 #endif
     // __m256i assignment_value_vec = _mm256_unpacklo_epi16(dist_vec__narrow, cluster_number_vec);
-    __m256i assignment_value_vec = _mm256_slli_epi32(_mm256_cvtepu16_epi32(dist_vec__narrow), 16) + cluster_number_vec;
+    __m256i assignment_value_vec = _mm256_add_epi32(_mm256_slli_epi32(_mm256_cvtepu16_epi32(dist_vec__narrow), 16), cluster_number_vec);
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         // asm("int $3");
