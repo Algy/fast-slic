@@ -69,6 +69,7 @@ if platform.system() != 'Windows':
         # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
 else:
+    extra_compile_args.append("/openmp")
     if _check_avx2():
         extra_compile_args.append("/DUSE_AVX2")
         # extra_compile_args.append("/DFAST_SLIC_AVX2_FASTER")
