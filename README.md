@@ -70,7 +70,8 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 ## Known Issues
  * `SlicAvx2` is kind of clumsy at side and corner processing. This is intended behavior to remove overhead of conditional branches required for boundary check. If this is problem to you, put paddings of size of `ceil(sqrt(image_height * image_width / num_components)` around an image.
  * `compactness` is allocated as an 8-byte integer internally, so its value cannot exceed 255. You will never need more than 255 compactness in practice.
- 
+ * Windows build is quite slower compared to those of linux and mac. Maybe it is due to openmp overhead?
+
  
 ## Experimental
  * To push the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
@@ -78,6 +79,6 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
  - [ ] Remove or merge small blobs
  - [ ] Include simple CRF utilities
  - [ ] Add tests
- - [ ] Windows build
+ - [x] Windows build
  - [x] More scalable parallel loop in cluster assignment. I suspect there is false sharing problem in the loop.
  - [x] would be great if I can optimize loop more. SIMD?
