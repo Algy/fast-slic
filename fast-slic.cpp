@@ -141,7 +141,11 @@ static void slic_assign_cluster_oriented(Context *context) {
 
     const int16_t S = context->S;
 
+    #if _OPENMP >= 200805
     #pragma omp parallel for collapse(2)
+    #else
+    #pragma omp parallel for
+    #endif
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             assignment[i * W + j] =  0xFFFFFFFF;
@@ -223,7 +227,11 @@ static void slic_assign_cluster_oriented(Context *context) {
     // auto t2 = Clock::now();
 
     // Clean up: Drop distance part in assignment and let only cluster numbers remain
+    #if _OPENMP >= 200805
     #pragma omp parallel for collapse(2)
+    #else
+    #pragma omp parallel for
+    #endif
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
@@ -330,7 +338,11 @@ static void slic_update_clusters(Context *context) {
         int *local_num_cluster_members = new int[K];
         std::fill_n(local_num_cluster_members, K, 0);
         std::fill_n(local_acc_vec, K * 5, 0);
+        #if _OPENMP >= 200805
         #pragma omp for collapse(2)
+        #else
+        #pragma omp for
+        #endif
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
                 int base_index = W * i + j;

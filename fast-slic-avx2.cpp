@@ -457,7 +457,12 @@ static void slic_update_clusters(Context *context, bool reset_assignment) {
         int *local_num_cluster_members = new int[K];
         std::fill_n(local_num_cluster_members, K, 0);
         std::fill_n(local_acc_vec, K * 5, 0);
+
+        #if _OPENMP >= 200805
         #pragma omp for collapse(2)
+        #else
+        #pragma omp for
+        #endif
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
                 int img_base_index = quad_image_memory_width * i + 4 * j;
