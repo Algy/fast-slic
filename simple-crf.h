@@ -2,14 +2,11 @@
 #define _SIMPLE_CRF_H
 
 #include <stdint.h>
+#include <stddef.h>
+#include "fast-slic-common.h"
 
 struct SimpleCRF;
-typedef struct SimpleCRFConnectivity {
-    int time;
-    int num_nodes;
-    int *num_neighbors;
-    int **neighbors;
-} SimpleCRFConnectivity;
+struct SimpleCRFFrame;
 
 typedef struct SimpleCRFParams {
     float spatial_w;
@@ -20,38 +17,78 @@ typedef struct SimpleCRFParams {
 
 
 typedef struct SimpleCRF* simple_crf_t;
+typedef struct SimpleCRFFrame* simple_crf_frame_t;
+typedef int simple_crf_time_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-simple_crf_t simple_crf_new(int num_classes, int num_nodes);
+simple_crf_t simple_crf_new(size_t num_classes, size_t num_nodes);
 void simple_crf_free(simple_crf_t crf);
 
 SimpleCRFParams simple_crf_get_params(simple_crf_t crf);
 void simple_crf_set_params(simple_crf_t crf, SimpleCRFParams params);
 
-int simple_crf_first_time(simple_crf_t crf);
-int simple_crf_last_time(simple_crf_t crf);
-int simple_crf_num_time_frames(simple_crf_t crf);
-int simple_crf_pop_time_frame(simple_crf_t crf);
-int simple_crf_push_time_frame(simple_crf_t crf);
+simple_crf_time_t simple_crf_first_time(simple_crf_t crf);
+simple_crf_time_t simple_crf_last_time(simple_crf_t crf);
+size_t simple_crf_num_time_frames(simple_crf_t crf);
+simple_crf_time_t simple_crf_pop_time_frame(simple_crf_t crf);
+simple_crf_time_frame_t simple_crf_push_time_frame(simple_crf_t crf);
+simple_crf_time_frame_t simple_crf_time_frame(simple_crf_time_t time);
+simple_crf_time_t simple_crf_frame_get_time(simple_crf_frame_t frame);
 
+/*
+ * Pairwise information setter
+ */
 
-void simple_crf_set_pixels(simple_crf_t crf, int t, const uint8_t* yxrgbs);
-void simple_crf_set_connectivity(simple_crf_t crf, int t, const SimpleCRFConnectivity* conn);
+// const Cluster[] : shape [num_nodes]
+int simple_crf_frame_set_clusters(simple_crf_frame_t frame, const Cluster* clusters);
+void simple_crf_frame_set_connectivity(simple_crf_frame_t frame, const Connectivity* conn);
+
+/*
+ * Unary Getter/Setter
+ */ 
+
 // classes: int[] of shape [num_nodes]
-void simple_crf_set_frame_mask(simple_crf_t crf, int t, const int* classes, float confidence);
+void simple_crf_frame_set_class(simple_crf_frame_t frame, const const int* classes, float confidence);
 // probas: float[] of shape [num_classes, num_nodes]
-void simple_crf_set_frame_log_proba(simple_crf_t crf, int t, const float* probas);
-void simple_crf_set_frame_unbiased(simple_crf_t crf, int t);
-void simple_crf_reset_frame_state(simple_crf_t crf);
+void simple_crf_frame_set_log_proba(simple_crf_frame_t frame, const float* log_probas);
+void simple_crf_frame_set_unbiased(simple_crf_frame_t frame);
 
-const char* simple_crf_iterate(simple_crf_t crf, int max_iter);
+// unary_energies: float[] of shape [num_classes, num_nodes]
+void simple_crf_frame_set_unary(simple_crf_frame_t frame, const float* unary_energies);
+void simple_crf_frame_get_unary(simple_crf_frame_t frame, float* unary_energies);
 
-// out_probas: flaot[] of shape [num_classes, num_nodes]
-void simple_crf_get_log_proba(simple_crf_t crf, int t, float* out_log_probas); 
+/*
+ * Pairwise information getter
+ */
+
+typdef void* simple_crf_conn_iter_t;
+simple_crf_conn_iter_t simple_crf_frame_pairwise_connection(simple_crf_frame_t frame, int node_i);
+simple_crf_conn_iter_t simple_crf_frame_pairwise_connection_next(simple_crf_conn_iter_t iter, int *node_j);
+void simple_crf_frame_pairwise_connection_end(simple_crf_conn_iter_t iter);
+
+float simple_crf_frame_spatial_pairwise_energy(simple_crf_frame_t frame, int node_i, int node_j);
+float simple_crf_frame_temporal_pairwise_energy(simple_crf_frame_t frame, simple_crf_frame_t other_frame, int node_i);
+
+
+/*
+ * State Getter/Setter
+ */
+void simple_crf_frame_get_inferred(simple_crf_frame_t frame, float* log_probas);
+void simple_crf_frame_reset_inferred(simple_crf_frame_t frame);
+
+/*
+ * Inference
+ */
+
+// Returns NULL or error message
+const char* simple_crf_inference(simple_crf_t crf, size_t max_iter);
+
+/*
+ * Utils
+ */
 simple_crf_t simple_crf_copy(simple_crf_t crf);
-
 
 #ifdef __cplusplus
 }

@@ -16,16 +16,11 @@ public:
     CRFPairwiseEnergy(int from, int to) : from(from), to(to), spatial_energy_cache(0);
 };
 
-class CRFPixel {
+class SimpleCRFFrame {
 public:
-    uint8_t color_vals[4];
-};
-
-class CRFTimeFrame {
-public:
-    int time;
-    int num_classes;
-    int num_nodes;
+    simple_crf_time_t time;
+    size_t num_classes;
+    size_t num_nodes;
 private:
     // Configurations
     bool unary_configured = false;
@@ -39,11 +34,14 @@ private:
     // States
     std::vector<float> log_q; // [num_classes, num_nodes]
 public:
-    CRFTimeFrame(int time, int num_classes, int num_nodes) : time(time), num_classes(num_classes), num_nodes(num_nodes) {
+    SimpleCRFFrame(int time, int num_classes, int num_nodes) : time(time), num_classes(num_classes), num_nodes(num_nodes) {
         pixels.reserve(num_classes);
         unaries.reserve(num_classes);
         log_q.reserve(num_classes * num_nodes);
     }
+
+    void set_clusters(const Cluster* clusters);
+    void set_connectivity(const Connectivity* conn);
 
     const float* get_log_proba() const { return log_q; };
     bool ready() { return unary_configured && pairwise_configured && pixel_configured };
@@ -53,10 +51,10 @@ public:
     void set_mask(const int* classes, float confidence);
     void set_log_proba(const float* probas);
     void reset_frame_state();
-    void set_pixels(CRFTimeFrame& frame, const uint8_t* yxrgbs);
+    void set_pixels(SimpleCRFFrame& frame, const uint8_t* yxrgbs);
     void set_connectivity(simple_crf_t crf, int t, const SimpleCRFConnectivity* conn);
 private:
-    float calc_temporal_pairwise_energy(const SimpleCRFParams& params, int node, const CRFTimeFrame& other);
+    float calc_temporal_pairwise_energy(const SimpleCRFParams& params, int node, const SimpleCRFFrame& other);
     float calc_spatial_pairwise_energy(const SimpleCRFParams& params, int node_i, int node_j);
 };
 
@@ -65,8 +63,8 @@ private:
     int num_classes;
     int num_nodes;
     int next_time = 0;
-    std::deque<CRFTimeFrame> time_frames;
-    std::map<int, CRFTimeFrame&> time_map;
+    std::deque<SimpleCRFFrame> time_frames;
+    std::map<int, SimpleCRFFrame&> time_map;
 public:
     SimpleCRFParams params;
 public:
@@ -94,13 +92,13 @@ public:
         return retval;
     }
 
-    CRFTimeFrame& get_frame(int time) const {
+    SimpleCRFFrame& get_frame(int time) const {
         return time_map[time];
     }
 
     int push_frame() {
         int next_time = most_recent_time++;
-        time_frames.push_back(CRFTimeFrame(next_time, num_classes, num_nodes));
+        time_frames.push_back(SimpleCRFFrame(next_time, num_classes, num_nodes));
         time_map[next_time] = time_frames.back();
         return next_time;
     }
