@@ -7,56 +7,52 @@
 #include <map>
 #include "simple-crf.h"
 
-class CRFPairwise {
-public:
-    int from;
-    int to;
-    float spatial_energy_cache;
-public:
-    CRFPairwiseEnergy(int from, int to) : from(from), to(to), spatial_energy_cache(0);
-};
-
 class SimpleCRFFrame {
+private:
+    SimpleCRF& parent;
 public:
     simple_crf_time_t time;
     size_t num_classes;
     size_t num_nodes;
 private:
-    // Configurations
-    bool unary_configured = false;
-    bool pixel_configured = false;
-    bool pairwise_configured = false;
-
-    std::vector<CRFPixel> pixels;
-    std::vector< int, std::vector<CRFPairwise> > edges;
+    std::vector<Cluster> clusters;
+    std::vector< int, std::vector<int> > edges;
     std::vector<float> unaries;
 private:
     // States
-    std::vector<float> log_q; // [num_classes, num_nodes]
+    std::vector<float> q; // [num_classes, num_nodes]
 public:
-    SimpleCRFFrame(int time, int num_classes, int num_nodes) : time(time), num_classes(num_classes), num_nodes(num_nodes) {
-        pixels.reserve(num_classes);
-        unaries.reserve(num_classes);
-        log_q.reserve(num_classes * num_nodes);
+    SimpleCRFFrame(SimpleCRFFrame &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes), unaries(num_classes * num_nodes), q(num_classes * num_nodes) {
     }
 
     void set_clusters(const Cluster* clusters);
     void set_connectivity(const Connectivity* conn);
 
-    const float* get_log_proba() const { return log_q; };
-    bool ready() { return unary_configured && pairwise_configured && pixel_configured };
+    const std::vector<int>& connected_nodes(int node) {
+        return edges[node];
+    }
+
+    void get_inferred(float *out) const {
+        std::copy(q, q + num_classes * num_nodes, out);
+    };
+    void reset_inferred();
 
     void normalize();
     void set_unbiased();
     void set_mask(const int* classes, float confidence);
-    void set_log_proba(const float* probas);
-    void reset_frame_state();
-    void set_pixels(SimpleCRFFrame& frame, const uint8_t* yxrgbs);
-    void set_connectivity(simple_crf_t crf, int t, const SimpleCRFConnectivity* conn);
+    void set_proba(const float* probas);
+    void set_unary(const float* unaries) {
+        std::copy(unaries, unaries + num_classes * num_nodes, this->unaries);
+    }
+    void get_unary(float *unaries_out) {
+        std::copy(this->unaries, this->unaries + num_classes * num_nodes, unaries_out);
+    }
+    float calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other);
+    float calc_spatial_pairwise_energy(int node_i, int node_j);
 private:
-    float calc_temporal_pairwise_energy(const SimpleCRFParams& params, int node, const SimpleCRFFrame& other);
-    float calc_spatial_pairwise_energy(const SimpleCRFParams& params, int node_i, int node_j);
+    friend SimpleCRF;
 };
+
 
 struct SimpleCRF {
 private:
@@ -65,14 +61,17 @@ private:
     int next_time = 0;
     std::deque<SimpleCRFFrame> time_frames;
     std::map<int, SimpleCRFFrame&> time_map;
+    std::vector<float> compat_by_class;
 public:
     SimpleCRFParams params;
 public:
-    SimpleCRF(int num_classes, int num_nodes) : num_classes(num_classes), num_nodes(num_nodes) {
+    SimpleCRF(int num_classes, int num_nodes) : num_classes(num_classes), num_nodes(num_nodes), compat_by_class(num_classes) {
         params.spatial_w = 10;
         params.temporal_w = 10;
         params.spatial_srgb = 30;
         params.temporal_srgb = 30;
+        params.compat = 10;
+        std::fill_n(compat_by_class.begin(), num_classes, 1.0f);
     };
 
     int first_time() const {
@@ -92,57 +91,117 @@ public:
         return retval;
     }
 
+    int space_size() {
+        return num_classes * num_nodes;
+    }
+
     SimpleCRFFrame& get_frame(int time) const {
         return time_map[time];
     }
 
-    int push_frame() {
+    SimpleCRFFrame& push_frame() {
         int next_time = most_recent_time++;
-        time_frames.push_back(SimpleCRFFrame(next_time, num_classes, num_nodes));
+        time_frames.push_back(SimpleCRFFrame(*self, next_time, num_classes, num_nodes));
         time_map[next_time] = time_frames.back();
-        return next_time;
+        return time_frames.back();
     }
 
-    const char* iterate(int max_iter);
+    const char* inference(int max_iter);
 };
 
 extern "C" {
-    simple_crf_t simple_crf_new(int num_classes, int num_nodes) { return new SimpleCRF(); };
-    void simple_crf_free(simple_crf_t crf) { delete crf; };
+    simple_crf_t simple_crf_new(size_t num_classes, size_t num_nodes) { return new SimpleCRF(num_classes, num_nodes); }
+    void simple_crf_free(simple_crf_t crf) { delete crf };
 
     SimpleCRFParams simple_crf_get_params(simple_crf_t crf) { return crf->params; }
-    void simple_crf_set_params(simple_crf_t crf, SimpleCRFParams params) {
-        crf->params = params;
+    void simple_crf_set_params(simple_crf_t crf, SimpleCRFParams params) { crf->params = params; }
+    void simple_crf_set_compat(simple_crf_t crf, int cls, float compat_value) { crf->compat_by_class[cls] = compat_value; }
+    float simple_crf_get_compat(simple_crf_t crf, int cls) { return crf->compat_by_class[cls]; }
+
+    simple_crf_time_t simple_crf_first_time(simple_crf_t crf) { return crf->first_time(); }
+    simple_crf_time_t simple_crf_last_time(simple_crf_t crf) { return crf->last_time(); }
+    size_t simple_crf_num_time_frames(simple_crf_t crf) { return crf->num_frames(); }
+    simple_crf_time_t simple_crf_pop_time_frame(simple_crf_t crf) { return crf->pop_frame(); }
+    simple_crf_time_frame_t simple_crf_push_time_frame(simple_crf_t crf) { return &crf->push_frame(); };
+    simple_crf_time_frame_t simple_crf_time_frame(simple_crf_t crf, simple_crf_time_t time) {
+        return &crf->get_frame(time);
+    }
+    simple_crf_time_t simple_crf_frame_get_time(simple_crf_frame_t frame){
+        return frame->time;
+    }
+    void simple_crf_frame_set_clusters(simple_crf_frame_t frame, const Cluster* clusters) {
+        frame->set_clusters(clusters);
     }
 
-    int simple_crf_first_time(simple_crf_t crf) { return crf->first_time(); }
-    int simple_crf_last_time(simple_crf_t crf) { return crf->last_time() }
-    int simple_crf_num_time_frames(simple_crf_t crf) { return crf->num_frames() }
-    int simple_crf_pop_time_frame(simple_crf_t crf) { return crf->pop_frame(); }
-    int simple_crf_push_time_frame(simple_crf_t crf) { return crf->push_frame(); }
-
-    void simple_crf_set_pixels(simple_crf_t crf, int t, const uint8_t* yxrgbs) {
-        crf->get_frame(t).set_pixels(pixels);
+    void simple_crf_frame_set_connectivity(simple_crf_frame_t frame, const Connectivity* conn) {
+        frame->set_connectivity(conn);
     }
 
-    void simple_crf_set_connectivity(simple_crf_t crf, int t, const SimpleCRFConnectivity* conn) {
-        crf->get_frame(t).set_connectivity(conn);
-    }
+    /*
+     * Unary Getter/Setter
+     */ 
 
     // classes: int[] of shape [num_nodes]
-    void simple_crf_set_frame_mask(simple_crf_t crf, int t, const int* classes, float confidence) { crf->get_frame(t).set_mask(classes, confidence); };
-    // probas: float[] of shape [num_classes, num_nodes]
-    void simple_crf_set_frame_log_proba(simple_crf_t crf, int t, const float* log_probas) { crf->get_frame(t).set_log_proba(log_probas); }
-    void simple_crf_set_frame_unbiased(simple_crf_t crf, int t) { crf->get_frame(t).set_unbiased(); }
-    const char* simple_crf_iterate(simple_crf_t crf, int max_iter) { return crf->iterate(max_iter); }
-    void simple_crf_reset_frame_state(simple_crf_t crf, int t) { crf->get_frame(t).reset_frame_state(); };
-
-    // out_log_probas: flaot[] of shape [num_classes, num_nodes]
-    void simple_crf_get_log_proba(simple_crf_t crf, int t, float* out_log_probas) {
-        const float* proba = crf->get_log_proba();
-        std::copy(proba, proba + num_classes * num_nodes, out_log_probas);
+    void simple_crf_frame_set_mask(simple_crf_frame_t frame, const const int* classes, float confidence) {
+        frame->set_mask(classes, confidence);
     }
 
+    void simple_crf_frame_set_proba(simple_crf_frame_t frame, const float* probas) {
+        frame->set_proba(probas);
+    }
+
+    void simple_crf_frame_set_unbiased(simple_crf_frame_t frame) {
+        frame->set_unbiased();
+    }
+
+    void simple_crf_frame_set_unary(simple_crf_frame_t frame, const float* unary_energies) {
+        frame->set_unary(unary_energies);
+    }
+
+    void simple_crf_frame_get_unary(simple_crf_frame_t frame, float* unary_energies) {
+        frame->get_unary(unary_energies);
+    }
+
+    simple_crf_conn_iter_t simple_crf_frame_pairwise_connection(simple_crf_frame_t frame, int node_i) {
+    }
+
+    simple_crf_conn_iter_t simple_crf_frame_pairwise_connection_next(simple_crf_conn_iter_t iter, int *node_j) {
+    }
+
+    void simple_crf_frame_pairwise_connection_end(simple_crf_conn_iter_t iter) {
+    }
+
+    float simple_crf_frame_spatial_pairwise_energy(simple_crf_frame_t frame, int node_i, int node_j) {
+        return frame->calc_spatial_pairwise_energy(node_i, node_j);
+    }
+
+    float simple_crf_frame_temporal_pairwise_energy(simple_crf_frame_t frame, simple_crf_frame_t other_frame, int node_i) {
+        return frame->calc_temporal_pairwise_energy(node_i, *frame);
+    }
+
+    /*
+     * State Getter/Setter
+     */
+    void simple_crf_frame_get_inferred(simple_crf_frame_t frame, float* probas) {
+        frame->get_inferred(probas);
+    }
+
+    void simple_crf_frame_reset_inferred(simple_crf_frame_t frame) {
+        frame->reset_inferred();
+    }
+
+    /*
+     * Inference
+     */
+
+    // Returns NULL or error message
+    const char* simple_crf_inference(simple_crf_t crf, size_t max_iter) {
+        return crf->inference(max_iter);
+    }
+
+    /*
+     * Utils
+     */
     simple_crf_t simple_crf_copy(simple_crf_t crf) {
         return new SimpleCRF(*crf);
     }

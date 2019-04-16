@@ -28,13 +28,15 @@ void simple_crf_free(simple_crf_t crf);
 
 SimpleCRFParams simple_crf_get_params(simple_crf_t crf);
 void simple_crf_set_params(simple_crf_t crf, SimpleCRFParams params);
+void simple_crf_set_compat(simple_crf_t crf, int cls, float compat_value);
+float simple_crf_get_compat(simple_crf_t crf, int cls);
 
 simple_crf_time_t simple_crf_first_time(simple_crf_t crf);
 simple_crf_time_t simple_crf_last_time(simple_crf_t crf);
 size_t simple_crf_num_time_frames(simple_crf_t crf);
 simple_crf_time_t simple_crf_pop_time_frame(simple_crf_t crf);
 simple_crf_time_frame_t simple_crf_push_time_frame(simple_crf_t crf);
-simple_crf_time_frame_t simple_crf_time_frame(simple_crf_time_t time);
+simple_crf_time_frame_t simple_crf_time_frame(simple_crf_t crf, simple_crf_time_t time);
 simple_crf_time_t simple_crf_frame_get_time(simple_crf_frame_t frame);
 
 /*
@@ -42,7 +44,7 @@ simple_crf_time_t simple_crf_frame_get_time(simple_crf_frame_t frame);
  */
 
 // const Cluster[] : shape [num_nodes]
-int simple_crf_frame_set_clusters(simple_crf_frame_t frame, const Cluster* clusters);
+void simple_crf_frame_set_clusters(simple_crf_frame_t frame, const Cluster* clusters);
 void simple_crf_frame_set_connectivity(simple_crf_frame_t frame, const Connectivity* conn);
 
 /*
@@ -50,9 +52,9 @@ void simple_crf_frame_set_connectivity(simple_crf_frame_t frame, const Connectiv
  */ 
 
 // classes: int[] of shape [num_nodes]
-void simple_crf_frame_set_class(simple_crf_frame_t frame, const const int* classes, float confidence);
+void simple_crf_frame_set_mask(simple_crf_frame_t frame, const const int* classes, float confidence);
 // probas: float[] of shape [num_classes, num_nodes]
-void simple_crf_frame_set_log_proba(simple_crf_frame_t frame, const float* log_probas);
+void simple_crf_frame_set_proba(simple_crf_frame_t frame, const float* probas);
 void simple_crf_frame_set_unbiased(simple_crf_frame_t frame);
 
 // unary_energies: float[] of shape [num_classes, num_nodes]
