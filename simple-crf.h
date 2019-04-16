@@ -35,8 +35,8 @@ simple_crf_time_t simple_crf_first_time(simple_crf_t crf);
 simple_crf_time_t simple_crf_last_time(simple_crf_t crf);
 size_t simple_crf_num_time_frames(simple_crf_t crf);
 simple_crf_time_t simple_crf_pop_time_frame(simple_crf_t crf);
-simple_crf_time_frame_t simple_crf_push_time_frame(simple_crf_t crf);
-simple_crf_time_frame_t simple_crf_time_frame(simple_crf_t crf, simple_crf_time_t time);
+simple_crf_frame_t simple_crf_push_time_frame(simple_crf_t crf);
+simple_crf_frame_t simple_crf_time_frame(simple_crf_t crf, simple_crf_time_t time);
 simple_crf_time_t simple_crf_frame_get_time(simple_crf_frame_t frame);
 
 /*
@@ -52,7 +52,7 @@ void simple_crf_frame_set_connectivity(simple_crf_frame_t frame, const Connectiv
  */ 
 
 // classes: int[] of shape [num_nodes]
-void simple_crf_frame_set_mask(simple_crf_frame_t frame, const const int* classes, float confidence);
+void simple_crf_frame_set_mask(simple_crf_frame_t frame, const int* classes, float confidence);
 // probas: float[] of shape [num_classes, num_nodes]
 void simple_crf_frame_set_proba(simple_crf_frame_t frame, const float* probas);
 void simple_crf_frame_set_unbiased(simple_crf_frame_t frame);
@@ -65,7 +65,7 @@ void simple_crf_frame_get_unary(simple_crf_frame_t frame, float* unary_energies)
  * Pairwise information getter
  */
 
-typdef void* simple_crf_conn_iter_t;
+typedef void* simple_crf_conn_iter_t;
 simple_crf_conn_iter_t simple_crf_frame_pairwise_connection(simple_crf_frame_t frame, int node_i);
 simple_crf_conn_iter_t simple_crf_frame_pairwise_connection_next(simple_crf_conn_iter_t iter, int *node_j);
 void simple_crf_frame_pairwise_connection_end(simple_crf_conn_iter_t iter);
@@ -85,7 +85,7 @@ void simple_crf_frame_reset_inferred(simple_crf_frame_t frame);
  */
 
 // Returns NULL or error message
-const char* simple_crf_inference(simple_crf_t crf, size_t max_iter);
+void simple_crf_inference(simple_crf_t crf, size_t max_iter);
 
 /*
  * Utils
