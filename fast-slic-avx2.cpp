@@ -515,17 +515,16 @@ static void slic_update_clusters(Context *context, bool reset_assignment) {
     delete [] cluster_acc_vec;
 }
 
-
-static void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, int assignment_memory_width, uint32_t* aligned_assignment) {
+static void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, uint32_t* assignment) {
     if (K <= 0) return;
 
-    uint8_t *visited = new uint8_t[H * assignment_memory_width];
+    uint8_t *visited = new uint8_t[H * W];
     std::fill_n(visited, H * W, 0);
 
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
-            int base_index = assignment_memory_width * i + j;
-            if ((uint16_t)aligned_assignment[base_index] != 0xFFFF) continue;
+            int base_index = W * i + j;
+            if (assignment[base_index] != 0xFFFF) continue;
 
             std::vector<int> visited_indices;
             std::vector<int> stack;
@@ -535,8 +534,8 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
                 int index = stack.back();
                 stack.pop_back();
 
-                if ((uint16_t)aligned_assignment[index] != 0xFFFF) {
-                    adj_cluster_indices.insert(aligned_assignment[index]);
+                if (assignment[index] != 0xFFFF) {
+                    adj_cluster_indices.insert(assignment[index]);
                     continue;
                 } else if (visited[index]) {
                     continue;
@@ -546,13 +545,13 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
 
                 int index_j = index % W;
                 // up
-                if (index > assignment_memory_width) {
-                    stack.push_back(index - assignment_memory_width);
+                if (index > W) {
+                    stack.push_back(index - W);
                 }
 
                 // down
-                if (index + assignment_memory_width < H * assignment_memory_width) {
-                    stack.push_back(index + assignment_memory_width);
+                if (index + W < H * W) {
+                    stack.push_back(index + W);
                 }
 
                 // left
@@ -577,7 +576,7 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
             }
 
             for (auto it = visited_indices.begin(); it != visited_indices.end(); ++it) {
-                aligned_assignment[*it] = target_cluster_index;
+                assignment[*it] = target_cluster_index;
             }
 
         }
@@ -721,9 +720,6 @@ extern "C" {
             // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
-        // auto t1 = Clock::now();
-        slic_enforce_connectivity(H, W, K, clusters, assignment_memory_width, aligned_assignment);
-        // auto t2 = Clock::now();
 
 
 
@@ -737,6 +733,9 @@ extern "C" {
             // auto t2 = Clock::now();
             // std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
         }
+        // auto t1 = Clock::now();
+        slic_enforce_connectivity(H, W, K, clusters, assignment);
+        // auto t2 = Clock::now();
 
         // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
