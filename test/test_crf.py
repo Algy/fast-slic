@@ -77,6 +77,23 @@ def test_unaries():
     assert np.isclose(frame.unaries, -np.log(prob)).all()
 
 
+def test_proba():
+    crf = SimpleCRF(3, 3)
+    frame = crf.push_frame()
+    # Unary: -log(probability)
+    prob = np.array(
+        [[0.7, 0.5, 0.1],
+         [0.1, 0.3, 0.05],
+         [0.2, 0.2, 0.75]],
+        np.float32
+    )
+    frame.set_proba(prob)
+
+    assert np.isclose(frame.get_inferred(), 0).all()
+    crf.initialize()
+    assert np.isclose(frame.get_inferred(), prob).all()
+
+
 def test_initial_inferred():
     crf = SimpleCRF(3, 3)
     frame = crf.push_frame()
