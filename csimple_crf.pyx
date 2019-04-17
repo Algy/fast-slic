@@ -299,6 +299,10 @@ cdef class SimpleCRF:
         with nogil:
             self._c_crf.initialize()
 
+    def inference(self, size_t max_iter):
+        with nogil:
+            self._c_crf.inference(max_iter)
+
     def __dealloc__(self):
         del self._c_crf
 

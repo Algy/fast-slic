@@ -128,7 +128,6 @@ def test_set_connectivity():
     with pytest.raises(TypeError):
         frame.set_connectivity([None, None, None])
     frame.set_connectivity([[0, 1], [2], [0]])
-    print(frame.get_connectivity() )
     assert frame.get_connectivity() == [[0, 1], [2], [0]]
 
 
@@ -158,8 +157,6 @@ def test_spatial_energy():
     assert np.isclose(frame.spatial_pairwise_energy(1, 1), 0)
 
     
-
-
 def test_temporal_energy():
     # weight * exp(-(rgb_i(t) - rgb_i(T)) ** 2 / (2 * srgb ** 2)) 
 

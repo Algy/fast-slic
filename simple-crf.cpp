@@ -90,7 +90,7 @@ float SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const
 
 void SimpleCRF::infer_once() {
     simple_crf_time_t first_time = get_first_time(), last_time = get_last_time();
-    std::map<int, float *> new_qs;
+    std::vector<float *> new_probas;
 
     for (simple_crf_time_t t = first_time; t <= last_time; t++) {
         float *messages = new float[space_size()];
@@ -100,30 +100,31 @@ void SimpleCRF::infer_once() {
         // Message passing
         for (size_t cls = 0; cls < num_classes; cls++) {
             for (size_t i = 0; i < num_nodes; i++) {
-                auto & neighbors = frame.connected_nodes(i);
-                // pairwise literal
+                const std::vector<int>& neighbors = frame.connected_nodes(i);
+
+                // sum of energy from neighbors
                 float message = 0;
-                for (auto j : neighbors) {
-                    float pair_q = frame.q[num_nodes * cls  + j];
+                for (auto neighbor : neighbors) {
+                    float neighbor_q = frame.q[num_nodes * cls + neighbor];
                     // 1. spatial pairwise energy
-                    float spatial_energy = frame.calc_spatial_pairwise_energy(i, j);
-                    message += spatial_energy * pair_q;
+                    float spatial_energy = frame.calc_spatial_pairwise_energy(neighbor, i);
+                    message += spatial_energy * neighbor_q;
                 }
 
                 if (t > first_time) {
                     const SimpleCRFFrame& prev_frame = get_frame(t - 1);
-                    prev_frame.q[num_nodes * cls + i];
                     message += frame.calc_temporal_pairwise_energy(i, prev_frame) * prev_frame.q[num_nodes * cls + i];
                 }
 
                 if (t < last_time) {
                     const SimpleCRFFrame& next_frame = get_frame(t + 1);
-                    next_frame.q[num_nodes * cls + i];
                     message += frame.calc_temporal_pairwise_energy(i, next_frame) * next_frame.q[num_nodes * cls + i];
                 }
                 messages[cls * num_nodes + i] = message;
             }
         }
+
+        // Compatibility transform
         for (size_t cls = 0; cls < num_classes; cls++) {
             for (size_t i = 0; i < num_nodes; i++) {
                 float gathtered_message_sum = 0;
@@ -135,6 +136,7 @@ void SimpleCRF::infer_once() {
              }
         }
 
+        // Normalize
         for (size_t i = 0; i < num_nodes; i++) {
             float sum = 0;
             for (size_t cls = 0; cls < num_classes; cls++) {
@@ -144,15 +146,20 @@ void SimpleCRF::infer_once() {
                 compat_exps[num_nodes * cls + i] /= sum;
             }
         }
-        new_qs[t] = compat_exps;
+        new_probas.push_back(compat_exps);
         delete [] messages;
     }
 
+    size_t iter = 0;
     for (simple_crf_time_t t = first_time; t <= last_time; t++) {
         SimpleCRFFrame& frame = get_frame(t);
-        float *new_q = new_qs[t];
+        float *new_q = new_probas.at(iter++);
         std::copy(new_q, new_q + space_size(), frame.q.begin());
-        delete [] new_q;
+    }
+
+    // Clean up
+    for (float* buf : new_probas) {
+        delete [] buf;
     }
 }
 
