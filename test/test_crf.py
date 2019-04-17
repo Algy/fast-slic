@@ -86,3 +86,90 @@ def test_initial_inferred():
     frame.reset_inferred()
     assert np.isclose(frame.get_inferred(), 1 / 3.).all()
 
+
+def test_set_yxrgb():
+    crf = SimpleCRF(3, 3)
+    frame = crf.push_frame()
+    frame.set_yxrgb(
+        [
+            [1,2,3,4,5],
+            [6,7,8,9,10],
+            [11,12,13,14,15],
+        ]
+    )
+    res = frame.get_yxrgb()
+    assert len(res) == 3
+    assert res[0] == [1,2,3,4,5]
+    assert res[1] == [6,7,8,9,10]
+    assert res[2] == [11,12,13,14,15]
+
+
+def test_set_connectivity():
+    crf = SimpleCRF(3, 3)
+    frame = crf.push_frame()
+    assert frame.get_connectivity() == [[], [], []]
+    with pytest.raises(TypeError):
+        frame.set_connectivity([None, None, None])
+    frame.set_connectivity([[0, 1], [2], [0]])
+    print(frame.get_connectivity() )
+    assert frame.get_connectivity() == [[0, 1], [2], [0]]
+
+
+def test_spatial_energy():
+    # weight * exp(-(rgb_i - rgb_j) ** 2 / (2 * srgb ** 2)) 
+    spatial_srgb = 3.5
+    spatial_w = 1.9
+    crf = SimpleCRF(3, 2)
+
+    crf.spatial_srgb = spatial_srgb
+    crf.spatial_w = spatial_w
+    assert np.isclose(crf.spatial_srgb, spatial_srgb)
+    assert np.isclose(crf.spatial_w, spatial_w)
+
+    frame = crf.push_frame()
+
+    frame.set_yxrgb([
+        [0, 0, 1, 2, 6],
+        [0, 0, 4, 5, 3],
+    ])
+
+    energy = spatial_w * np.exp(-(((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * spatial_srgb ** 2)))
+
+    assert np.isclose(frame.spatial_pairwise_energy(0, 1), energy)
+    assert np.isclose(frame.spatial_pairwise_energy(1, 0), energy)
+    assert np.isclose(frame.spatial_pairwise_energy(0, 0), 0)
+    assert np.isclose(frame.spatial_pairwise_energy(1, 1), 0)
+
+    
+
+
+def test_temporal_energy():
+    # weight * exp(-(rgb_i(t) - rgb_i(T)) ** 2 / (2 * srgb ** 2)) 
+
+    temporal_srgb = 3.5
+    temporal_w = 1.9
+    crf = SimpleCRF(3, 1)
+
+    crf.temporal_srgb = temporal_srgb
+    crf.temporal_w = temporal_w
+
+    assert np.isclose(crf.temporal_srgb, temporal_srgb)
+    assert np.isclose(crf.temporal_w , temporal_w)
+
+    frame_1 = crf.push_frame()
+    frame_2 = crf.push_frame()
+
+    frame_1.set_yxrgb([
+        [0, 0, 1, 2, 6],
+    ])
+    frame_2.set_yxrgb([
+        [0, 0, 4, 5, 3],
+    ])
+
+    energy = temporal_w * np.exp(-(((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * temporal_srgb ** 2)))
+
+    assert np.isclose(frame_1.temporal_pairwise_energy(0, frame_2), energy)
+    assert np.isclose(frame_2.temporal_pairwise_energy(0, frame_1), energy)
+    assert np.isclose(frame_1.temporal_pairwise_energy(0, frame_1), 0)
+    assert np.isclose(frame_2.temporal_pairwise_energy(0, frame_2), 0)
+

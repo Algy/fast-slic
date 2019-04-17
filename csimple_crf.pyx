@@ -5,10 +5,20 @@ import numpy as np
 cimport numpy as np
 cimport cfast_slic as cs
 
-from cython.operator cimport dereference as deref
+from libc.stdlib cimport malloc, free
+from libc.string cimport memset
+from libc.stdint cimport uint32_t
+from libcpp.vector cimport vector
+from cython.operator cimport dereference as deref, preincrement
 
 cdef extern from "simple-crf.hpp":
     ctypedef int simple_crf_time_t
+
+    ctypedef struct SimpleCRFParams:
+        float spatial_w
+        float temporal_w
+        float spatial_srgb
+        float temporal_srgb
 
     cdef cppclass CSimpleCRFFrame "SimpleCRFFrame":
         simple_crf_time_t time
@@ -17,7 +27,9 @@ cdef extern from "simple-crf.hpp":
 
         void normalize()
         void set_clusters(const cs.Cluster* clusters)
+        void get_clusters(cs.Cluster* clusters)
         void set_connectivity(const cs.Connectivity* conn)
+        const vector[int]& connected_nodes(int node) except +
 
         void get_unary(float *unaries_out) const
         void set_unbiased()
@@ -33,6 +45,8 @@ cdef extern from "simple-crf.hpp":
         float calc_spatial_pairwise_energy(int node_i, int node_j) nogil
 
     cdef cppclass CSimpleCRF "SimpleCRF":
+        SimpleCRFParams params
+
         CSimpleCRF(size_t num_classes, size_t num_nodes) except +
         simple_crf_time_t get_first_time()
         simple_crf_time_t get_last_time()
@@ -53,6 +67,7 @@ cdef class SimpleCRFFrame:
     def __cinit__(self, parent_crf):
         self.parent_crf = parent_crf # Prevent unintended GC: because CRF object owns Frame, associated frame object would become dangling pointer if crf python object got collected. 
 
+
     @property
     def time(self):
         return self._c_frame.time
@@ -67,10 +82,95 @@ cdef class SimpleCRFFrame:
         self._c_frame.get_unary(&unaries[0, 0])
         return unaries
 
+    def get_yxrgb(self):
+        result = []
+        cdef cs.Cluster* clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * self.num_nodes)
+        try:
+            self._c_frame.get_clusters(clusters)
+            for i in range(self.num_nodes):
+                result.append([
+                    clusters[i].y,
+                    clusters[i].x,
+                    clusters[i].r,
+                    clusters[i].g,
+                    clusters[i].b,
+                ])
+        finally:
+            free(clusters)
+        return result
+
+    def set_yxrgb(self, yxrgb):
+        if self.num_nodes != len(yxrgb):
+            raise ValueError("Expected len(yxrgb) to be {}".format(self.num_nodes))
+        cdef long i, y, x, r, g, b
+        cdef cs.Cluster *clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * len(yxrgb));
+        try:
+            for i, (y, x, r, g, b) in enumerate(yxrgb):
+                clusters[i].y = y
+                clusters[i].x = x
+                clusters[i].r = r
+                clusters[i].g = g
+                clusters[i].b = b
+                clusters[i].number = i
+            self._c_frame.set_clusters(clusters)
+        finally:
+            free(clusters)
+
+    def get_connectivity(self):
+        cdef size_t i
+        cdef const vector[int]* nodes
+        result = []
+        for node in range(self.num_nodes):
+            nodes = &self._c_frame.connected_nodes(node)
+            result.append(deref(nodes))
+        return result
+
+    def set_connectivity(self, connectivity):
+        cdef cs.Connectivity c_conn
+        cdef int i, k, num_neighbor
+        cdef uint32_t neighbor
+
+        if len(connectivity) != self.num_nodes:
+            raise ValueError("Expected len(connectivity) to be {}".format(self.num_nodes))
+
+        c_conn.num_nodes = len(connectivity)
+        c_conn.num_neighbors = NULL
+        c_conn.neighbors = NULL
+        try:
+            c_conn.num_neighbors = <int*>malloc(sizeof(int) * len(connectivity))
+            c_conn.neighbors = <uint32_t**>malloc(sizeof(uint32_t *) * len(connectivity))
+            memset(c_conn.neighbors, 0, sizeof(uint32_t *) * len(connectivity))
+
+            for i, neighbors in enumerate(connectivity):
+                c_conn.num_neighbors[i] = len(neighbors)
+                c_conn.neighbors[i] = <uint32_t*>malloc(sizeof(uint32_t) * len(neighbors))
+                for k, neighbor in enumerate(neighbors):
+                    c_conn.neighbors[i][k] = neighbor
+            self._c_frame.set_connectivity(&c_conn)
+        finally:
+            if c_conn.neighbors is not NULL:
+                for i in range(len(connectivity)):
+                    if c_conn.neighbors[i] is not NULL:
+                        free(c_conn.neighbors[i])
+                free(c_conn.neighbors)
+
+            if c_conn.num_neighbors is not NULL:
+                free(c_conn.num_neighbors)
+
+
+
     @unaries.setter
     def unaries(self, float[:,::1] new_value):
         self._check_demension(new_value)
         self._c_frame.set_unary(&new_value[0, 0])
+
+    @property
+    def num_nodes(self):
+        return self._c_frame.num_nodes
+
+    @property
+    def num_classes(self):
+        return self._c_frame.num_classes
 
     def set_unbiased(self):
         self._c_frame.set_unbiased()
@@ -104,7 +204,6 @@ cdef class SimpleCRFFrame:
             result = self._c_frame.calc_temporal_pairwise_energy(node_i, deref(other_frame))
         return result
 
-
     def spatial_pairwise_energy(self, int node_i, int node_j):
         cdef float result
         if <size_t>node_i >= self._c_frame.num_nodes or <size_t>node_j >= self._c_frame.num_nodes:
@@ -133,6 +232,39 @@ cdef class SimpleCRF:
         self._c_crf = new CSimpleCRF(num_classes, num_nodes)
 
     @property
+    def spatial_w(self):
+        return self._c_crf.params.spatial_w
+
+    @spatial_w.setter
+    def spatial_w(self, float spatial_w):
+        self._c_crf.params.spatial_w = spatial_w
+
+    @property
+    def spatial_srgb(self):
+        return self._c_crf.params.spatial_srgb
+
+    @spatial_srgb.setter
+    def spatial_srgb(self, float spatial_srgb):
+        self._c_crf.params.spatial_srgb = spatial_srgb
+
+    @property
+    def temporal_w(self):
+        return self._c_crf.params.temporal_w
+
+    @temporal_w.setter
+    def temporal_w(self, float temporal_w):
+        self._c_crf.params.temporal_w = temporal_w
+
+    @property
+    def temporal_srgb(self):
+        return self._c_crf.params.temporal_srgb
+
+    @temporal_srgb.setter
+    def temporal_srgb(self, float temporal_srgb):
+        self._c_crf.params.temporal_srgb = temporal_srgb
+
+
+    @property
     def first_time(self):
         return self._c_crf.get_first_time()
 
@@ -159,7 +291,7 @@ cdef class SimpleCRF:
         cdef SimpleCRFFrame result = SimpleCRFFrame(self)
         result._c_frame = frame
         return result
-        
+      
     cpdef pop_frame(self):
         return self._c_crf.pop_frame()
 

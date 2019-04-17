@@ -46,9 +46,24 @@ cdef class BaseSlicModel:
             )
         return result
 
+    def to_yxrgb(self):
+        cdef cfast_slic.Cluster* cluster
+        cdef int i
+
+        cdef np.ndarray[np.int16_t, ndim=2, mode='c'] result = np.ndarray([self.num_components, 5], dtype=np.int16)
+        for i in range(0, self.num_components):
+            cluster = self._c_clusters + i
+            result[i, 0] = cluster.y
+            result[i, 1] = cluster.x
+            result[i, 2] = cluster.r
+            result[i, 3] = cluster.g
+            result[i, 4] = cluster.b
+        return result
+
     @property
     def clusters(self):
         return self._get_clusters()
+
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image):
         if image.shape[2] != 3:

@@ -24,14 +24,17 @@ private:
     // States
     std::vector<float> q; // [num_classes, num_nodes]
 public:
-    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes, std::vector<int>(12)), unaries(space_size()), q(space_size()) {}
+    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes), unaries(space_size()), q(space_size()) {}
 
 
+    void get_clusters(Cluster* clusters) {
+        std::copy(this->clusters.begin(), this->clusters.end(), clusters);
+    }
     void set_clusters(const Cluster* clusters);
     void set_connectivity(const Connectivity* conn);
 
     const std::vector<int>& connected_nodes(int node) const {
-        return edges[node];
+        return edges.at(node);
     }
 
     void get_inferred(float *out) const { std::copy(q.begin(), q.end(), out); };
