@@ -10,9 +10,9 @@ void SimpleCRFFrame::set_clusters(const Cluster* clusters) {
 
 void SimpleCRFFrame::set_connectivity(const Connectivity* conn) {
     for (int i = 0; i < conn->num_nodes; i++) {
+        edges.at(i).clear();
         for(int k = 0; k < conn->num_neighbors[i]; k++) {
             int j = conn->neighbors[i][k];
-            edges.at(i).clear();
             edges[i].push_back(j);
         }
     }
@@ -32,8 +32,8 @@ void SimpleCRFFrame::normalize() {
 }
 
 void SimpleCRFFrame::set_unbiased() {
-    float unary_const = logf(num_classes);
-    std::fill_n(unaries.begin(), num_classes * num_nodes, unary_const);
+    float unary_const = logf((float)num_classes);
+    std::fill(unaries.begin(), unaries.end(), unary_const);
 }
 
 void SimpleCRFFrame::set_mask(const int* classes, float confidence) {
@@ -42,67 +42,58 @@ void SimpleCRFFrame::set_mask(const int* classes, float confidence) {
     float inactive_proba = 1 - active_proba;
     float active_unary = -logf(active_proba), inactive_unary = -logf(inactive_proba);
 
+    std::fill(unaries.begin(), unaries.end(), inactive_unary);
     for (size_t i = 0; i < num_nodes; i++) {
         int active_cls = classes[i];
-
-        for (size_t cls = 0; cls < num_classes; cls++) {
-            unaries[num_nodes * cls + i] = ((int)cls == active_cls)? active_unary : inactive_unary;
-        }
+        unaries[num_nodes * active_cls + i] = active_unary;
     }
 }
 
 
 void SimpleCRFFrame::set_proba(const float* probas) {
-    for (size_t cls = 0; cls < num_classes; cls++) {
-        for (size_t i = 0; i < num_nodes; i++) {
-            unaries[num_nodes * cls + i] = -logf(probas[cls * num_nodes + i]);
-        }
-    }
+    std::transform(probas, probas + space_size(), unaries.begin(), [](float proba) -> float { return -logf(proba); });
 }
 
 void SimpleCRFFrame::reset_inferred() {
-    for (size_t cls = 0; cls < num_classes; cls++) {
-        for (size_t i = 0; i < num_nodes; i++) {
-            q[num_nodes * cls + i] = expf(-unaries[cls * num_nodes + i]);
-        }
-    }
+    std::transform(unaries.begin(), unaries.end(), q.begin(), [](float unary) -> float { return expf(-unary); });
 }
 
-static inline float pow2(float a) {
-    return a * a;
-}
+static inline float pow2(float a) { return a * a; }
 
 float SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const {
     const Cluster &cluster_1 = clusters[node];
     const Cluster &cluster_2 = other.clusters[node];
+    float stdev = parent.params.temporal_srgb;
+    float weight = parent.params.temporal_w;
     float exponent = -(
-        pow2((cluster_1.r - cluster_2.r) / parent.params.temporal_srgb) +
-        pow2((cluster_1.g - cluster_2.g) / parent.params.temporal_srgb) +
-        pow2((cluster_1.b - cluster_2.b) / parent.params.temporal_srgb)
-    ) / 2;
-    return parent.params.temporal_w * expf(exponent);
+        pow2((cluster_1.r - cluster_2.r) / stdev) +
+        pow2((cluster_1.g - cluster_2.g) / stdev) +
+        pow2((cluster_1.b - cluster_2.b) / stdev)
+    ) / 2.0f;
+    return weight * expf(exponent);
 }
 
 float SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const {
     const Cluster &cluster_1 = clusters[node_i];
     const Cluster &cluster_2 = clusters[node_j];
+    float stdev = parent.params.spatial_srgb, weight = parent.params.spatial_w;
     float exponent = -(
-        pow2((cluster_1.r - cluster_2.r) / parent.params.temporal_srgb) +
-        pow2((cluster_1.g - cluster_2.g) / parent.params.temporal_srgb) +
-        pow2((cluster_1.b - cluster_2.b) / parent.params.temporal_srgb)
-    ) / 2;
-    return parent.params.spatial_w * expf(exponent);
+        pow2((cluster_1.r - cluster_2.r) / stdev) +
+        pow2((cluster_1.g - cluster_2.g) / stdev) +
+        pow2((cluster_1.b - cluster_2.b) / stdev)
+    ) / 2.0f;
+    return weight * expf(exponent);
 }
 
 void SimpleCRF::infer_once() {
     simple_crf_time_t first_time = get_first_time(), last_time = get_last_time();
-
     std::map<int, float *> new_qs;
-    for (int t = first_time; t <= last_time; t++) {
-        float *messages = new float[num_classes * num_nodes];
-        float *compat_exps = new float[num_classes * num_nodes];
 
+    for (simple_crf_time_t t = first_time; t <= last_time; t++) {
+        float *messages = new float[space_size()];
+        float *compat_exps = new float[space_size()];
         const SimpleCRFFrame& frame = get_frame(t);
+
         // Message passing
         for (size_t cls = 0; cls < num_classes; cls++) {
             for (size_t i = 0; i < num_nodes; i++) {
@@ -154,10 +145,10 @@ void SimpleCRF::infer_once() {
         delete [] messages;
     }
 
-    for (int t = first_time; t <= last_time; t++) {
+    for (simple_crf_time_t t = first_time; t <= last_time; t++) {
         SimpleCRFFrame& frame = get_frame(t);
         float *new_q = new_qs[t];
-        std::copy(new_q, new_q + (num_nodes * num_classes), frame.q.begin());
+        std::copy(new_q, new_q + space_size(), frame.q.begin());
         delete [] new_q;
     }
 }

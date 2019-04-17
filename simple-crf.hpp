@@ -8,7 +8,7 @@
 #include <functional>
 #include "simple-crf.h"
 
-class SimpleCRFFrame {
+struct SimpleCRFFrame {
 private:
     SimpleCRF& parent;
 public:
@@ -23,8 +23,7 @@ private:
     // States
     std::vector<float> q; // [num_classes, num_nodes]
 public:
-    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes, std::vector<int>(12)), unaries(num_classes * num_nodes), q(num_classes * num_nodes) {
-    }
+    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes, std::vector<int>(12)), unaries(space_size()), q(space_size()) {}
 
     void set_clusters(const Cluster* clusters);
     void set_connectivity(const Connectivity* conn);
@@ -43,6 +42,9 @@ public:
     void set_unary(const float* unaries) {
         std::copy(unaries, unaries + (num_classes * num_nodes), this->unaries.begin());
     }
+
+    size_t space_size() const { return num_classes * num_nodes; }
+
     void get_unary(float *unaries_out) const {
         std::copy(this->unaries.begin(), this->unaries.end(), unaries_out);
     }
@@ -92,10 +94,6 @@ public:
         return retval;
     }
 
-    size_t space_size() const {
-        return num_classes * num_nodes;
-    }
-
     SimpleCRFFrame& get_frame(simple_crf_time_t time) {
         SimpleCRFFrame& retval = *time_map[time];
         return retval;
@@ -108,7 +106,8 @@ public:
         return time_frames.back();
     }
 
-    void inference(size_t max_iter);
+    size_t space_size() const { return num_classes * num_nodes; }
+g    void inference(size_t max_iter);
 private:
     void infer_once();
 };
