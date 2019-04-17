@@ -567,6 +567,7 @@ extern "C" {
                 } while (0);
                 CONNECTIVITY_SEARCH(base_index + 1);
                 CONNECTIVITY_SEARCH(base_index + W);
+                CONNECTIVITY_SEARCH(base_index + W + 1);
                 conn->num_neighbors[source] = num_source_neighbors;
             }
         }

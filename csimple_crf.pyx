@@ -124,11 +124,18 @@ cdef class SimpleCRFFrame:
             nodes = &self._c_frame.connected_nodes(node)
             result.append(deref(nodes))
         return result
+    
+    cpdef _set_slic_connectivity(self, cs.NodeConnectivity connectivity):
+        self._c_frame.set_connectivity(connectivity._c_connectivity)
 
     def set_connectivity(self, connectivity):
         cdef cs.Connectivity c_conn
         cdef int i, k, num_neighbor
         cdef uint32_t neighbor
+        cdef cs.Connectivity* c_connectivity
+        if isinstance(connectivity, cs.NodeConnectivity):
+            self._set_slic_connectivity(<cs.NodeConnectivity>connectivity)
+            return 
 
         if len(connectivity) != self.num_nodes:
             raise ValueError("Expected len(connectivity) to be {}".format(self.num_nodes))
@@ -285,6 +292,13 @@ cdef class SimpleCRF:
         cdef SimpleCRFFrame result = SimpleCRFFrame(self)
         result._c_frame = frame
         return result
+
+    cpdef push_slic_frame(self, slic):
+        frame = self.push_frame()
+        frame.set_yxrgb(slic.slic_model.to_yxrgb())
+        frame.set_connectivity(slic.slic_model.get_connectivity(slic.last_assignment))
+        frame.set_unbiased()
+        return frame
 
     cpdef push_frame(self):
         cdef CSimpleCRFFrame* frame = &self._c_crf.push_frame()

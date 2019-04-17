@@ -42,8 +42,10 @@ def test_gc():
     frame = crf.push_frame()
     del crf
     
+    import gc; gc.collect()
     # frame should be alive
     frame.unaries
+    frame.get_inferred()
 
 def test_unaries():
     crf = SimpleCRF(3, 3)

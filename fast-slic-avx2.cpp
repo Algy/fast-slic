@@ -721,11 +721,6 @@ extern "C" {
             // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
-        // auto t1 = Clock::now();
-        slic_enforce_connectivity(H, W, K, clusters, assignment_memory_width, aligned_assignment);
-        // auto t2 = Clock::now();
-
-        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
         {
             // auto t1 = Clock::now();
@@ -737,6 +732,12 @@ extern "C" {
             // auto t2 = Clock::now();
             // std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
         }
+
+        // auto t1 = Clock::now();
+        slic_enforce_connectivity(H, W, K, clusters, assignment_memory_width, aligned_assignment);
+        // auto t2 = Clock::now();
+
+        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
         // std::cerr << "Freeing context" <<std::endl;
         free_context(&context);
