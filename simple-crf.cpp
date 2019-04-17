@@ -39,7 +39,7 @@ void SimpleCRFFrame::set_unbiased() {
 void SimpleCRFFrame::set_mask(const int* classes, float confidence) {
     float lowest_proba = 1.0f / num_classes;
     float active_proba = lowest_proba + (1 - lowest_proba) * confidence;
-    float inactive_proba = 1 - active_proba;
+    float inactive_proba = (1 - active_proba) / (float)(num_classes - 1);
     float active_unary = -logf(active_proba), inactive_unary = -logf(inactive_proba);
 
     std::fill(unaries.begin(), unaries.end(), inactive_unary);

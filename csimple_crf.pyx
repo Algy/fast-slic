@@ -39,7 +39,7 @@ cdef extern from "simple-crf.hpp":
         size_t get_num_frames()
         simple_crf_time_t pop_frame()
         CSimpleCRFFrame& get_frame(simple_crf_time_t time) except +
-        CSimpleCRFFrame& push_frame()
+        CSimpleCRFFrame& push_frame() except +
         size_t space_size()
         void initialize() nogil
         void inference(size_t max_iter) nogil
@@ -48,14 +48,10 @@ cdef extern from "simple-crf.hpp":
 
 cdef class SimpleCRFFrame:
     cdef CSimpleCRFFrame* _c_frame
+    cdef readonly object parent_crf
 
-    def __cinit__(self, parent):
-        self.parent = parent # Prevent unintended GC: because CRF object owns Frame, associated frame object would become dangling pointer if crf python object got collected. 
-    @staticmethod
-    cdef create(parent, CSimpleCRFFrame* c_frame):
-        result = SimpleCRFFrame(parent)
-        result._c_frame = c_frame
-        return result
+    def __cinit__(self, parent_crf):
+        self.parent_crf = parent_crf # Prevent unintended GC: because CRF object owns Frame, associated frame object would become dangling pointer if crf python object got collected. 
 
     @property
     def time(self):
@@ -71,7 +67,7 @@ cdef class SimpleCRFFrame:
         self._c_frame.get_unary(&unaries[0, 0])
         return unaries
 
-    @property.setter
+    @unaries.setter
     def unaries(self, float[:,::1] new_value):
         self._check_demension(new_value)
         self._c_frame.set_unary(&new_value[0, 0])
@@ -92,7 +88,6 @@ cdef class SimpleCRFFrame:
         cdef np.ndarray[np.float32_t,  ndim=2, mode='c'] proba = self._fresh_buffer()
         self._c_frame.get_inferred(&proba[0, 0])
         return proba
-
 
     def reset_inferred(self):
         self._c_frame.reset_inferred()
@@ -155,13 +150,17 @@ cdef class SimpleCRF:
 
     def get_frame(self, simple_crf_time_t time):
         cdef CSimpleCRFFrame* frame = &self._c_crf.get_frame(time)
-        return SimpleCRFFrame.create(self, frame)
+        cdef SimpleCRFFrame result = SimpleCRFFrame(self)
+        result._c_frame = frame
+        return result
 
-    def push_frame(self):
+    cpdef push_frame(self):
         cdef CSimpleCRFFrame* frame = &self._c_crf.push_frame()
-        return SimpleCRFFrame.create(self, frame)
+        cdef SimpleCRFFrame result = SimpleCRFFrame(self)
+        result._c_frame = frame
+        return result
         
-    def pop_frame(self):
+    cpdef pop_frame(self):
         return self._c_crf.pop_frame()
 
     def initialize(self):
