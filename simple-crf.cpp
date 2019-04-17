@@ -153,6 +153,12 @@ void SimpleCRF::infer_once() {
     }
 }
 
+void SimpleCRF::initialize() {
+    for (auto& time_frame : time_frames) {
+        time_frame.reset_inferred();
+    }
+}
+
 void SimpleCRF::inference(size_t max_iter) {
     for (size_t i = 0; i < max_iter; i++) {
         infer_once();
@@ -163,6 +169,9 @@ void SimpleCRF::inference(size_t max_iter) {
 // C Api
 extern "C" {
     simple_crf_t simple_crf_new(size_t num_classes, size_t num_nodes) { return new SimpleCRF(num_classes, num_nodes); }
+    void simple_crf_initialize(simple_crf_t crf) {
+        crf->initialize();
+    }
     void simple_crf_free(simple_crf_t crf) { delete crf; };
 
     SimpleCRFParams simple_crf_get_params(simple_crf_t crf) { return crf->params; }
@@ -172,7 +181,7 @@ extern "C" {
 
     simple_crf_time_t simple_crf_first_time(simple_crf_t crf) { return crf->get_first_time(); }
     simple_crf_time_t simple_crf_last_time(simple_crf_t crf) { return crf->get_last_time(); }
-    size_t simple_crf_num_time_frames(simple_crf_t crf) { return crf->num_frames(); }
+    size_t simple_crf_num_time_frames(simple_crf_t crf) { return crf->get_num_frames(); }
     simple_crf_time_t simple_crf_pop_time_frame(simple_crf_t crf) { return crf->pop_frame(); }
     simple_crf_frame_t simple_crf_push_time_frame(simple_crf_t crf) { return &crf->push_frame(); };
     simple_crf_frame_t simple_crf_time_frame(simple_crf_t crf, simple_crf_time_t time) {

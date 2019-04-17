@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <map>
+#include <stdexcept>
 #include <functional>
 #include "simple-crf.h"
 
@@ -24,6 +25,7 @@ private:
     std::vector<float> q; // [num_classes, num_nodes]
 public:
     SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes, std::vector<int>(12)), unaries(space_size()), q(space_size()) {}
+
 
     void set_clusters(const Cluster* clusters);
     void set_connectivity(const Connectivity* conn);
@@ -84,7 +86,7 @@ public:
         return time_frames.back().time;
     }
 
-    size_t num_frames() const { return time_frames.size(); };
+    size_t get_num_frames() const { return time_frames.size(); };
 
     simple_crf_time_t pop_frame() {
         if (time_frames.empty()) return -1;
@@ -95,7 +97,12 @@ public:
     }
 
     SimpleCRFFrame& get_frame(simple_crf_time_t time) {
-        SimpleCRFFrame& retval = *time_map[time];
+        SimpleCRFFrame* ptr = time_map[time];
+        if (ptr == nullptr) {
+            throw std::out_of_range("Time out of range");
+        }
+
+        SimpleCRFFrame& retval = *ptr;
         return retval;
     }
 
@@ -107,7 +114,8 @@ public:
     }
 
     size_t space_size() const { return num_classes * num_nodes; }
-g    void inference(size_t max_iter);
+    void initialize();
+    void inference(size_t max_iter);
 private:
     void infer_once();
 };

@@ -101,11 +101,19 @@ setup(
             Extension(
                 "cfast_slic",
                 include_dirs=[np.get_include()],
-                sources=["fast-slic.cpp", "fast-slic-avx2.cpp", "simple-crf.cpp", "cfast_slic.pyx", "csimple_crf.pyx"],
+                sources=["fast-slic.cpp", "fast-slic-avx2.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",
             ),
+            Extension(
+                "csimple_crf",
+                include_dirs=[np.get_include()],
+                sources=["simple-crf.cpp", "csimple_crf.pyx"],
+                extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+                language="c++",
+            )
         ]
     )
 )

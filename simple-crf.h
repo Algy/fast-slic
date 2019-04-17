@@ -24,6 +24,7 @@ typedef int simple_crf_time_t;
 extern "C" {
 #endif
 simple_crf_t simple_crf_new(size_t num_classes, size_t num_nodes);
+void simple_crf_initialize(simple_crf_t crf);
 void simple_crf_free(simple_crf_t crf);
 
 SimpleCRFParams simple_crf_get_params(simple_crf_t crf);
