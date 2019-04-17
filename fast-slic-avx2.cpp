@@ -525,7 +525,7 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             int base_index = assignment_memory_width * i + j;
-            if (aligned_assignment[base_index] != 0xFFFF) continue;
+            if ((uint16_t)aligned_assignment[base_index] != 0xFFFF) continue;
 
             std::vector<int> visited_indices;
             std::vector<int> stack;
@@ -535,7 +535,7 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
                 int index = stack.back();
                 stack.pop_back();
 
-                if (aligned_assignment[index] != 0xFFFF) {
+                if ((uint16_t)aligned_assignment[index] != 0xFFFF) {
                     adj_cluster_indices.insert(aligned_assignment[index]);
                     continue;
                 } else if (visited[index]) {
@@ -721,6 +721,11 @@ extern "C" {
             // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
         }
 
+        // auto t1 = Clock::now();
+        slic_enforce_connectivity(H, W, K, clusters, assignment_memory_width, aligned_assignment);
+        // auto t2 = Clock::now();
+
+
 
         {
             // auto t1 = Clock::now();
@@ -732,10 +737,6 @@ extern "C" {
             // auto t2 = Clock::now();
             // std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
         }
-
-        // auto t1 = Clock::now();
-        slic_enforce_connectivity(H, W, K, clusters, assignment_memory_width, aligned_assignment);
-        // auto t2 = Clock::now();
 
         // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
 
