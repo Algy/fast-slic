@@ -134,24 +134,27 @@ def test_set_connectivity():
 
 
 def test_spatial_energy():
-    # weight * exp(-(rgb_i - rgb_j) ** 2 / (2 * srgb ** 2)) 
+    # weight * exp(-(rgb_i - rgb_j) ** 2 / (2 * srgb ** 2) + -(xy_i - xy_j) ** 2 / (2 * sxy ** 2))
     spatial_srgb = 3.5
     spatial_w = 1.9
+    spatial_sxy = 2.4
     crf = SimpleCRF(3, 2)
 
     crf.spatial_srgb = spatial_srgb
     crf.spatial_w = spatial_w
+    crf.spatial_sxy = spatial_sxy
     assert np.isclose(crf.spatial_srgb, spatial_srgb)
     assert np.isclose(crf.spatial_w, spatial_w)
+    assert np.isclose(crf.spatial_sxy, spatial_sxy)
 
     frame = crf.push_frame()
 
     frame.set_yxrgb([
-        [0, 0, 1, 2, 6],
+        [1, 1, 1, 2, 6],
         [0, 0, 4, 5, 3],
     ])
 
-    energy = spatial_w * np.exp(-(((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * spatial_srgb ** 2)))
+    energy = spatial_w * np.exp(-((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * spatial_srgb ** 2) - ((1 - 0) ** 2 + (1 - 0)**2) / (2 * spatial_sxy ** 2))
 
     assert np.isclose(frame.spatial_pairwise_energy(0, 1), energy)
     assert np.isclose(frame.spatial_pairwise_energy(1, 0), energy)

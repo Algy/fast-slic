@@ -74,8 +74,9 @@ public:
     SimpleCRF(size_t num_classes, size_t num_nodes) : num_classes(num_classes), num_nodes(num_nodes), compat_by_class(num_classes) {
         params.spatial_w = 10;
         params.temporal_w = 10;
-        params.spatial_srgb = 30;
-        params.temporal_srgb = 30;
+        params.spatial_srgb = 13;
+        params.temporal_srgb = 13;
+        params.spatial_sxy = 80;
         std::fill_n(compat_by_class.begin(), num_classes, 1.0f);
     };
 

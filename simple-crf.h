@@ -13,6 +13,7 @@ typedef struct SimpleCRFParams {
     float temporal_w;
     float spatial_srgb;
     float temporal_srgb;
+    float spatial_sxy;
 } SimpleCRFParams;
 
 

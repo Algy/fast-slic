@@ -19,6 +19,7 @@ cdef extern from "simple-crf.hpp":
         float temporal_w
         float spatial_srgb
         float temporal_srgb
+        float spatial_sxy
 
     cdef cppclass CSimpleCRFFrame "SimpleCRFFrame":
         simple_crf_time_t time
@@ -253,6 +254,14 @@ cdef class SimpleCRF:
     @spatial_srgb.setter
     def spatial_srgb(self, float spatial_srgb):
         self._c_crf.params.spatial_srgb = spatial_srgb
+
+    @property
+    def spatial_sxy(self):
+        return self._c_crf.params.spatial_sxy
+
+    @spatial_sxy.setter
+    def spatial_sxy(self, float spatial_sxy):
+        self._c_crf.params.spatial_sxy = spatial_sxy
 
     @property
     def temporal_w(self):
