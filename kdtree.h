@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <climit>
+#include <climits>
 #include <vector>
 
 namespace mykdtree {
@@ -7,6 +7,7 @@ namespace mykdtree {
     static T pow2(T a) {
         return a * a;
     }
+
 
     template <typename T>
     struct KDTreePoint {
@@ -18,6 +19,7 @@ namespace mykdtree {
             int pt[2];
         } coord;
         T data;
+
         KDTreePoint(int x, int y)  {
             coord.xy.x = x;
             coord.xy.y = y;
@@ -27,7 +29,8 @@ namespace mykdtree {
             coord.xy.x = x;
             coord.xy.y = y;
         }
-        int value_of_dimension(int dimension) { return coord.pt[dimension]; };
+
+        int coord_of_dimension(int dimension) { return coord.pt[dimension]; };
         int distance_to(const KDTreePoint &other) { return pow2(coord.pt[0] - other.coord.pt[0]) + pow2(coord.pt[1] - other.coord.pt[1]); };
     };
 
@@ -38,17 +41,15 @@ namespace mykdtree {
     public:
         const int dimension;
         const int value;
+
         // Borrowed from KDTree
-        std::vector<KDTreePoint<T> *> point_ptrs;
-        KDTreeNode *lt_node;
-        KDTreeNode *gt_node;
+        std::vector< KDTreePoint<T>* > point_ptrs;
+        KDTreeNode<T> *lt_node;
+        KDTreeNode<T> *gt_node;
 
-        KDTreeNode(int dimension, int value) : dimension(dimension), value(value), lt_node(nullptr), gt_node(nullptr) { };
+        KDTreeNode(int dimension, int value) : dimension(dimension), value(value), lt_node(nullptr), gt_node(nullptr) {};
 
-        void add(KDTreePoint<T> *ptr) {
-            point_ptrs.push_back(ptr);
-        }
-        bool is_leaf() { return lt_node == nullptr && gt_node == nullptr; };
+        void add(KDTreePoint<T> *ptr) { point_ptrs.push_back(ptr); };
 
         ~KDTreeNode() {
             if (lt_node != nullptr) {
@@ -66,15 +67,14 @@ namespace mykdtree {
         int distance;
         KDTreePoint<T> *point_ptr;
         friend class KDHeapItem;
-
     public:
-        KDHeapItem(int distance, KDTreeNode<T> *point_ptr) : distance(distance), point_ptr(point_ptr) {};
+        KDHeapItem(int distance, KDTreePoint<T> *point_ptr) : distance(distance), point_ptr(point_ptr) {};
     };
 
-    bool operator<(const KDHeapItem& lhs, const KDHeapItem& rhs) {
+    template <typename T>
+    bool operator<(const KDHeapItem<T>& lhs, const KDHeapItem<T>& rhs) {
         return lhs.distance < rhs.distance;
     }
-
 
     template <typename T>
     class KDTree {
@@ -89,7 +89,7 @@ namespace mykdtree {
         };
 
     private:
-        KDTreeNode *root;
+        KDTreeNode<T> *root;
         std::vector< KDTreePoint<T> > points;
     public:
         KDTree() : root(nullptr) {};
@@ -97,12 +97,11 @@ namespace mykdtree {
         KDTree& operator=(const KDTree<T>& other) = delete;
 
         void push_back(int x, int y, T data) {
-            points.push_back(KDTreePoint(x, y, data));
+            points.push_back(KDTreePoint<T>(x, y, data));
         }
 
         void bulk_build() {
-            if (root != nullptr)
-                delete root;
+            if (root != nullptr) delete root;
             KDTreePoint<T>** point_ptrs = new KDTreePoint<T>*[points.size()];
             for (size_t i = 0; i < points.size(); i++) {
                 point_ptrs[i] = &points[i];
@@ -112,12 +111,14 @@ namespace mykdtree {
         }
 
         std::vector<KDTreePoint<T>*> k_nearest_neighbor(int x, int y, size_t k) {
-            std::vector<KDTreePoint<T>*> results;
-            results.reserve(k);
-            KDTreePoint point = K(x, y);
+            KDTreePoint<T> point(x, y);
             std::vector<KDHeapItem<T>> heap;
-            knn_search(point, root, heap, 0, k);
-            std::transform(heap.begin(), heap.end(), results,  [](KDHeapItem<T> item) { return item.point_ptr; });
+            knn_search(&point, root, heap, 0, k);
+
+            std::vector<KDTreePoint<T>*> results;
+            for (KDHeapItem<T> &item : heap) {
+                results.push_back(item.point_ptr);
+            }
             return results;
         }
 
@@ -132,25 +133,25 @@ namespace mykdtree {
 
             const int median_index = (int)length / 2;
             int left_median_index = median_index - 1, right_median_index = median_index + 1;
-            int median_value = point_ptrs[median_index]->value_of_dimension(dimension);
-            for (; left_median_index >= 0 && point_ptrs[left_median_index]->value_of_dimension(dimension) == median_value; left_median_index--);
-            for (; right_median_index < point_ptrs.size() && point_ptrs[right_median_index]->value_of_dimension(dimension) == median_value; right_median_index++);
+            int median_coord = point_ptrs[median_index]->coord_of_dimension(dimension);
+            for (; left_median_index >= 0 && point_ptrs[left_median_index]->coord_of_dimension(dimension) == median_coord; left_median_index--);
+            for (; right_median_index < length && point_ptrs[right_median_index]->coord_of_dimension(dimension) == median_coord; right_median_index++);
 
-            KDTreeNode<T>* node = new KDTreeNode<T>(dimension, median_value);
+            KDTreeNode<T>* node = new KDTreeNode<T>(dimension, median_coord);
             for (int i = left_median_index + 1; i <= right_median_index - 1; i++) {
                 node->add(point_ptrs[i]);
             }
 
             const int next_dimension = (dimension + 1) % 2;
-            node->lt_node = construct(point_ptrs, left_median_index + 1);
-            node->gt_node = construct(point_ptrs + right_median_index, length - right_median_index);
+            node->lt_node = construct(point_ptrs, left_median_index + 1, next_dimension);
+            node->gt_node = construct(point_ptrs + right_median_index, length - right_median_index, next_dimension);
             return node;
         }
 
-        void knn_search(const KDTreePoint* point, const KDTreeNode<T>* node, std::vector<KDHeapItem<T>> &heap, const int dimension, const size_t k) {
+        void knn_search(const KDTreePoint<T>* point, const KDTreeNode<T>* node, std::vector<KDHeapItem<T>> &heap, const int dimension, const size_t k) {
             if (node == nullptr) return;
             for (KDTreePoint<T>* pivot_point_ptr : node->point_ptrs) {
-                heap.push_back(KDHeapItem<T>(point->distance_to(*pivot_point_ptr), node));
+                heap.push_back(KDHeapItem<T>(point->distance_to(*pivot_point_ptr), pivot_point_ptr));
                 std::push_heap(heap.begin(), heap.end());
                 while (heap.size() > k) {
                     std::pop_heap(heap.begin(), heap.end());
@@ -158,20 +159,20 @@ namespace mykdtree {
                 }
             }
 
-            const int point_value = point->value_of_dimension(dimension);
-            const int pivot_value = node->value;
+            const int point_coord = point->coord_of_dimension(dimension);
+            const int pivot_coord = node->value;
 
-            int current_distance;
+            int max_possible_distance;
             if (heap.empty()) {
-                current_distance = INT_MAX >> 2;
+                max_possible_distance = INT_MAX >> 2;
             } else {
-                current_distance = heap.front().distance;
+                max_possible_distance = heap.front().distance;
             }
 
             int next_dimension = (dimension + 1) % 2;
-            if (point_value <= pivot_value - current_distance) {
+            if (point_coord <= pivot_coord - max_possible_distance) {
                 knn_search(point, node->lt_node, heap, next_dimension, k);
-            } else if (point_value >= pivot_value + current_distance) {
+            } else if (point_coord >= pivot_coord + max_possible_distance) {
                 knn_search(point, node->gt_node, heap, next_dimension, k);
             } else {
                 knn_search(point, node->lt_node, heap, next_dimension, k);
