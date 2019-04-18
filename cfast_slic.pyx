@@ -138,6 +138,13 @@ cdef class BaseSlicModel:
             conn = cfast_slic.fast_slic_get_connectivity(H, W, K, <const uint32_t *>&assignments[0, 0])
         return NodeConnectivity.create(conn)
 
+    cpdef get_knn_connectivity(self, size_t num_neighbors):
+        cdef int K = self.num_components
+        cdef cfast_slic.Cluster* c_clusters = self._c_clusters
+        with nogil:
+            conn = cfast_slic.fast_slic_knn_connectivity(K, c_clusters, num_neighbors)
+        return NodeConnectivity.create(conn)
+
     def __dealloc__(self):
         if self._c_clusters is not NULL:
             free(self._c_clusters)

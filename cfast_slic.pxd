@@ -24,6 +24,7 @@ cdef extern from "fast-slic.h":
     void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
     void fast_slic_iterate(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) nogil
     Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint32_t *assignment) nogil
+    Connectivity* fast_slic_knn_connectivity(int K, const Cluster* clusters, int num_neighbors) nogil
     void fast_slic_free_connectivity(Connectivity* conn) nogil
 
 cdef extern from "fast-slic-avx2.h":
@@ -48,7 +49,9 @@ cdef class BaseSlicModel:
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, uint8_t compactness, uint8_t quantize_level)
     cpdef get_connectivity(self, const int32_t[:,::1] assignments)
+    cpdef get_knn_connectivity(self, size_t num_neighbors)
     cdef _get_clusters(self)
+
     cpdef _get_name(self)
 
 

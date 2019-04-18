@@ -1,3 +1,6 @@
+#ifndef _KDTREE_H
+#define _KDTREE_H
+
 #include <algorithm>
 #include <climits>
 #include <vector>
@@ -30,8 +33,8 @@ namespace mykdtree {
             coord.xy.y = y;
         }
 
-        int coord_of_dimension(int dimension) { return coord.pt[dimension]; };
-        int distance_to(const KDTreePoint &other) { return pow2(coord.pt[0] - other.coord.pt[0]) + pow2(coord.pt[1] - other.coord.pt[1]); };
+        int coord_of_dimension(int dimension) const { return coord.pt[dimension]; };
+        int distance_to(const KDTreePoint &other) const { return pow2(coord.pt[0] - other.coord.pt[0]) + pow2(coord.pt[1] - other.coord.pt[1]); };
     };
 
 
@@ -66,7 +69,6 @@ namespace mykdtree {
     public:
         int distance;
         KDTreePoint<T> *point_ptr;
-        friend class KDHeapItem;
     public:
         KDHeapItem(int distance, KDTreePoint<T> *point_ptr) : distance(distance), point_ptr(point_ptr) {};
     };
@@ -83,7 +85,7 @@ namespace mykdtree {
             int dimension;
         public:
             kd_tree_sort_op(int dimension) : dimension(dimension) {};
-            bool operator()(const KDTreePoint<T> *&lhs, const KDTreePoint<T> *&rhs) {
+            bool operator()(const KDTreePoint<T> *lhs, const KDTreePoint<T> *rhs) {
                 return lhs->coord.pt[dimension] < rhs->coord.pt[dimension];
             };
         };
@@ -106,19 +108,21 @@ namespace mykdtree {
             for (size_t i = 0; i < points.size(); i++) {
                 point_ptrs[i] = &points[i];
             }
-            root = construct(point_ptrs, 0);
+            root = construct(point_ptrs, points.size(), 0);
             delete [] point_ptrs;
         }
 
-        std::vector<KDTreePoint<T>*> k_nearest_neighbor(int x, int y, size_t k) {
+        std::vector<KDTreePoint<T>*> k_nearest_neighbors(int x, int y, size_t k) {
             KDTreePoint<T> point(x, y);
             std::vector<KDHeapItem<T>> heap;
             knn_search(&point, root, heap, 0, k);
+            std::sort_heap(heap.begin(), heap.end());
 
             std::vector<KDTreePoint<T>*> results;
             for (KDHeapItem<T> &item : heap) {
                 results.push_back(item.point_ptr);
             }
+
             return results;
         }
 
@@ -135,7 +139,7 @@ namespace mykdtree {
             int left_median_index = median_index - 1, right_median_index = median_index + 1;
             int median_coord = point_ptrs[median_index]->coord_of_dimension(dimension);
             for (; left_median_index >= 0 && point_ptrs[left_median_index]->coord_of_dimension(dimension) == median_coord; left_median_index--);
-            for (; right_median_index < length && point_ptrs[right_median_index]->coord_of_dimension(dimension) == median_coord; right_median_index++);
+            for (; right_median_index < (int)length && point_ptrs[right_median_index]->coord_of_dimension(dimension) == median_coord; right_median_index++);
 
             KDTreeNode<T>* node = new KDTreeNode<T>(dimension, median_coord);
             for (int i = left_median_index + 1; i <= right_median_index - 1; i++) {
@@ -143,7 +147,7 @@ namespace mykdtree {
             }
 
             const int next_dimension = (dimension + 1) % 2;
-            node->lt_node = construct(point_ptrs, left_median_index + 1, next_dimension);
+            node->lt_node = construct(point_ptrs, (size_t)(left_median_index + 1), next_dimension);
             node->gt_node = construct(point_ptrs + right_median_index, length - right_median_index, next_dimension);
             return node;
         }
@@ -181,3 +185,5 @@ namespace mykdtree {
         }
     };
 }
+
+#endif

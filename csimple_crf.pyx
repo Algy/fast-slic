@@ -293,10 +293,13 @@ cdef class SimpleCRF:
         result._c_frame = frame
         return result
 
-    cpdef push_slic_frame(self, slic):
+    cpdef push_slic_frame(self, slic, knn=None):
         frame = self.push_frame()
         frame.set_yxrgb(slic.slic_model.to_yxrgb())
-        frame.set_connectivity(slic.slic_model.get_connectivity(slic.last_assignment))
+        if knn is None:
+            frame.set_connectivity(slic.slic_model.get_connectivity(slic.last_assignment))
+        else:
+            frame.set_connectivity(slic.slic_model.get_knn_connectivity(knn))
         frame.set_unbiased()
         return frame
 

@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "fast-slic.h"
+#include "kdtree.h"
 
 #define CHARBIT 8
 
@@ -573,6 +574,40 @@ extern "C" {
         }
 
         delete [] hashtable;
+        return conn;
+    }
+
+    Connectivity* fast_slic_knn_connectivity(int K, const Cluster* clusters, size_t num_neighbors) {
+        mykdtree::KDTree<const Cluster*> kdtree;
+        Connectivity* conn = new Connectivity();
+        conn->num_nodes = K;
+        conn->num_neighbors = new int[K];
+        conn->neighbors = new uint32_t*[K];
+
+        std::fill_n(conn->num_neighbors, K, 0);
+        std::fill_n(conn->neighbors, K, nullptr);
+
+        for (int i = 0; i < K; i++) {
+            const Cluster* cluster = clusters + i;
+            kdtree.push_back(cluster->x, cluster->y, cluster);
+        }
+
+        kdtree.bulk_build();
+        for (int i = 0; i < K; i++) {
+            const Cluster* cluster = clusters + i;
+            auto points = kdtree.k_nearest_neighbors(cluster->x, cluster->y, (size_t)(num_neighbors + 1)); // exclude self
+
+            if (points.size() > 0) {
+                conn->num_neighbors[i] = points.size() - 1;
+                conn->neighbors[i] = new uint32_t[points.size() - 1];
+                for (size_t j = 1; j < points.size(); j++) {
+                    conn->neighbors[i][j - 1] = points[j]->data->number;
+                }
+            } else {
+                conn->num_neighbors[i] = 0;
+                conn->neighbors[i] = new uint32_t[0];
+            }
+        }
         return conn;
     }
 
