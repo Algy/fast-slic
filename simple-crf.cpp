@@ -81,6 +81,8 @@ float SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const
     const Cluster &cluster_2 = clusters[node_j];
     float stdev = parent.params.spatial_srgb, weight = parent.params.spatial_w;
     float sxy = parent.params.spatial_sxy;
+    float smooth_weight = parent.params.spatial_smooth_w;
+    float smooth_sxy = parent.params.spatial_smooth_sxy;
     float exponent = -(
         pow2((cluster_1.r - cluster_2.r) / stdev) +
         pow2((cluster_1.g - cluster_2.g) / stdev) +
@@ -91,7 +93,12 @@ float SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const
         pow2((cluster_1.x - cluster_2.x) / sxy) + 
         pow2((cluster_1.y - cluster_2.y) / sxy)
     ) / 2.0f;
-    return weight * expf(exponent);
+
+    float smooth_exponent = -(
+        pow2((cluster_1.x - cluster_2.x) / smooth_sxy) + 
+        pow2((cluster_1.y - cluster_2.y) / smooth_sxy)
+    ) / 2.0f;
+    return weight * expf(exponent) + smooth_weight * expf(smooth_exponent);
 }
 
 void SimpleCRF::infer_once() {

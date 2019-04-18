@@ -20,6 +20,8 @@ cdef extern from "simple-crf.hpp":
         float spatial_srgb
         float temporal_srgb
         float spatial_sxy
+        float spatial_smooth_w
+        float spatial_smooth_sxy
 
     cdef cppclass CSimpleCRFFrame "SimpleCRFFrame":
         simple_crf_time_t time
@@ -279,6 +281,21 @@ cdef class SimpleCRF:
     def temporal_srgb(self, float temporal_srgb):
         self._c_crf.params.temporal_srgb = temporal_srgb
 
+    @property
+    def spatial_smooth_w(self):
+        return self._c_crf.params.spatial_smooth_w
+
+    @spatial_smooth_w.setter
+    def spatial_smooth_w(self, float spatial_smooth_w):
+        self._c_crf.params.spatial_smooth_w = spatial_smooth_w
+
+    @property
+    def spatial_smooth_sxy(self):
+        return self._c_crf.params.spatial_smooth_sxy
+
+    @spatial_smooth_sxy.setter
+    def spatial_smooth_sxy(self, float spatial_smooth_sxy):
+        self._c_crf.params.spatial_smooth_sxy = spatial_smooth_sxy
 
     @property
     def first_time(self):

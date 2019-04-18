@@ -14,6 +14,8 @@ typedef struct SimpleCRFParams {
     float spatial_srgb;
     float temporal_srgb;
     float spatial_sxy;
+    float spatial_smooth_w;
+    float spatial_smooth_sxy;
 } SimpleCRFParams;
 
 

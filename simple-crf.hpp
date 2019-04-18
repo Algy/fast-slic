@@ -77,6 +77,8 @@ public:
         params.spatial_srgb = 13;
         params.temporal_srgb = 13;
         params.spatial_sxy = 80;
+        params.spatial_smooth_w = 0;
+        params.spatial_smooth_sxy = 3;
         std::fill_n(compat_by_class.begin(), num_classes, 1.0f);
     };
 
