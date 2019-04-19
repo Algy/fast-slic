@@ -139,11 +139,13 @@ cdef class BaseSlicModel:
             conn = cfast_slic.fast_slic_get_connectivity(H, W, K, <const uint32_t *>&assignments[0, 0])
         return NodeConnectivity.create(conn)
 
-    cpdef get_knn_connectivity(self, size_t num_neighbors):
+    cpdef get_knn_connectivity(self, const int32_t[:,::1] assignments, size_t num_neighbors):
+        cdef int H = assignments.shape[0]
+        cdef int W = assignments.shape[1]
         cdef int K = self.num_components
         cdef cfast_slic.Cluster* c_clusters = self._c_clusters
         with nogil:
-            conn = cfast_slic.fast_slic_knn_connectivity(K, c_clusters, num_neighbors)
+            conn = cfast_slic.fast_slic_knn_connectivity(H, W, K, c_clusters, num_neighbors)
         return NodeConnectivity.create(conn)
 
     cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int32_t[:, ::1] assignments):

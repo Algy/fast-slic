@@ -327,7 +327,7 @@ cdef class SimpleCRF:
         if knn is None:
             frame.set_connectivity(slic.slic_model.get_connectivity(slic.last_assignment))
         else:
-            frame.set_connectivity(slic.slic_model.get_knn_connectivity(knn))
+            frame.set_connectivity(slic.slic_model.get_knn_connectivity(slic.last_assignment, knn))
         frame.set_unbiased()
         return frame
 

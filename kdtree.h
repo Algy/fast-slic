@@ -4,10 +4,16 @@
 #include <algorithm>
 #include <climits>
 #include <vector>
+#include <iostream>
 
 namespace mykdtree {
     template <typename T>
-    static T pow2(T a) {
+    inline static T pow2(T a) {
+        return a * a;
+    }
+
+    template <typename T>
+    inline static T my_abs(T a) {
         return a * a;
     }
 
@@ -33,8 +39,8 @@ namespace mykdtree {
             coord.xy.y = y;
         }
 
-        int coord_of_dimension(int dimension) const { return coord.pt[dimension]; };
-        int distance_to(const KDTreePoint &other) const { return pow2(coord.pt[0] - other.coord.pt[0]) + pow2(coord.pt[1] - other.coord.pt[1]); };
+        inline int coord_of_dimension(int dimension) const { return coord.pt[dimension]; };
+        inline int distance_to(const KDTreePoint &other) const { return my_abs(coord.pt[0] - other.coord.pt[0]) + my_abs(coord.pt[1] - other.coord.pt[1]); };
     };
 
 
@@ -155,7 +161,9 @@ namespace mykdtree {
         void knn_search(const KDTreePoint<T>* point, const KDTreeNode<T>* node, std::vector<KDHeapItem<T>> &heap, const int dimension, const size_t k) {
             if (node == nullptr) return;
             for (KDTreePoint<T>* pivot_point_ptr : node->point_ptrs) {
-                heap.push_back(KDHeapItem<T>(point->distance_to(*pivot_point_ptr), pivot_point_ptr));
+                int distance = point->distance_to(*pivot_point_ptr);
+                if (!heap.empty() && heap.front().distance <= distance) continue;
+                heap.push_back(KDHeapItem<T>(distance, pivot_point_ptr));
                 std::push_heap(heap.begin(), heap.end());
                 while (heap.size() > k) {
                     std::pop_heap(heap.begin(), heap.end());
@@ -165,22 +173,31 @@ namespace mykdtree {
 
             const int point_coord = point->coord_of_dimension(dimension);
             const int pivot_coord = node->value;
+            const int next_dimension = (dimension + 1) % 2;
 
             int max_possible_distance;
-            if (heap.empty()) {
-                max_possible_distance = INT_MAX >> 2;
-            } else {
-                max_possible_distance = heap.front().distance;
-            }
+            if (point_coord <= pivot_coord) {
+                knn_search(point, node->lt_node, heap, next_dimension, k);
+                if (heap.empty()) {
+                    max_possible_distance = INT_MAX >> 2;
+                } else {
+                    max_possible_distance = heap.front().distance;
+                }
 
-            int next_dimension = (dimension + 1) % 2;
-            if (point_coord <= pivot_coord - max_possible_distance) {
-                knn_search(point, node->lt_node, heap, next_dimension, k);
-            } else if (point_coord >= pivot_coord + max_possible_distance) {
-                knn_search(point, node->gt_node, heap, next_dimension, k);
+                if (pivot_coord - max_possible_distance < point_coord) {
+                    knn_search(point, node->gt_node, heap, next_dimension, k);
+                }
             } else {
-                knn_search(point, node->lt_node, heap, next_dimension, k);
                 knn_search(point, node->gt_node, heap, next_dimension, k);
+                if (heap.empty()) {
+                    max_possible_distance = INT_MAX >> 2;
+                } else {
+                    max_possible_distance = heap.front().distance;
+                }
+
+                if (pivot_coord + max_possible_distance > point_coord) {
+                    knn_search(point, node->lt_node, heap, next_dimension, k);
+                }
             }
         }
     };

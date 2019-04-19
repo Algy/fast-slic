@@ -5,8 +5,13 @@
 #include <unordered_set>
 #include <cstring>
 
+#include <iostream>
+#include <chrono>
+#include <utility>
 #include "fast-slic.h"
 #include "kdtree.h"
+
+typedef std::chrono::high_resolution_clock Clock;
 
 #define CHARBIT 8
 
@@ -577,8 +582,57 @@ extern "C" {
         return conn;
     }
 
-    Connectivity* fast_slic_knn_connectivity(int K, const Cluster* clusters, size_t num_neighbors) {
-        mykdtree::KDTree<const Cluster*> kdtree;
+    Connectivity* fast_slic_knn_connectivity(int H, int W, int K, const Cluster* clusters, size_t num_neighbors) {
+        // auto t1 = Clock::now();
+        int S = my_max((int)sqrt(H * W / K), 1);
+        int nh = ceil_int(H, S), nw = ceil_int(W, S);
+
+        std::vector< std::vector<const Cluster*> > s_cells(nh * nw);
+        for (int i = 0; i < K; i++) {
+            const Cluster* cluster = clusters + i;
+            s_cells[(cluster->y / S) * nw + (cluster->x / S)].push_back(cluster);
+        }
+
+        // auto t2 = Clock::now();
+        Connectivity* conn = new Connectivity();
+        conn->num_nodes = K;
+        conn->num_neighbors = new int[K];
+        conn->neighbors = new uint32_t*[K];
+
+        #pragma omp parallel for
+        for (int i = 0; i < K; i++) {
+            const Cluster* cluster = clusters + i;
+            int cell_center_x = cluster->x / S, cell_center_y = cluster->y / S;
+
+            std::vector<std::pair<int, const Cluster*>> heap;
+            for (int cy = my_max(cell_center_y - 3, 0); cy < my_min(nh, cell_center_y + 3); cy++) {
+                for (int cx = my_max(cell_center_x - 3, 0); cx < my_min(nw, cell_center_x + 3); cx++) {
+                    for (const Cluster* cluster_around  : s_cells[cy * nw + cx])  {
+                        if (cluster_around == cluster) continue;
+                        int distance = fast_abs(cluster_around->x - cluster->x) + fast_abs(cluster_around->y - cluster->y);
+                        if (!heap.empty() && heap.front().first <= distance) continue;
+
+                        heap.push_back(std::pair<int, const Cluster*>(distance, cluster_around));
+                        std::push_heap(heap.begin(), heap.end());
+                        while (heap.size() > num_neighbors) {
+                            std::pop_heap(heap.begin(), heap.end());
+                            heap.pop_back();
+                        }
+                    }
+                }
+            }
+            conn->num_neighbors[i] = heap.size();
+            conn->neighbors[i] = new uint32_t[heap.size()];
+            for (size_t j = 0; j < heap.size(); j++) {
+                conn->neighbors[i][j] = heap[j].second->number;
+            }
+        }
+        // auto t3 = Clock::now();
+
+        // std::cerr << "Build " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        // std::cerr << "Find " << std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+        return conn;
+        /*
         Connectivity* conn = new Connectivity();
         conn->num_nodes = K;
         conn->num_neighbors = new int[K];
@@ -592,7 +646,10 @@ extern "C" {
             kdtree.push_back(cluster->x, cluster->y, cluster);
         }
 
+        auto t1 = Clock::now();
         kdtree.bulk_build();
+        auto t2 = Clock::now();
+        // #pragma omp parallel for
         for (int i = 0; i < K; i++) {
             const Cluster* cluster = clusters + i;
             auto points = kdtree.k_nearest_neighbors(cluster->x, cluster->y, (size_t)(num_neighbors + 1)); // exclude self
@@ -608,7 +665,12 @@ extern "C" {
                 conn->neighbors[i] = new uint32_t[0];
             }
         }
-        return conn;
+        */
+        // auto t3 = Clock::now();
+
+        // std::cerr << "Build " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        // std::cerr << "Find " << std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+        // return conn;
     }
 
     void fast_slic_free_connectivity(Connectivity* conn) {
