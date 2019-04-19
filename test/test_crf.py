@@ -110,11 +110,14 @@ def test_set_yxmrgb():
     crf = SimpleCRF(3, 3)
     frame = crf.push_frame()
     frame.set_yxmrgb(
-        [
-            [1,2,1,3,4,5],
-            [6,7,2,8,9,10],
-            [11,12,3, 13,14,15],
-        ]
+        np.array(
+            [
+                [1,2,1,3,4,5],
+                [6,7,2,8,9,10],
+                [11,12,3, 13,14,15],
+            ],
+            np.int32,
+        )
     )
     res = frame.get_yxmrgb()
     assert len(res) == 3
@@ -149,10 +152,15 @@ def test_spatial_energy():
 
     frame = crf.push_frame()
 
-    frame.set_yxmrgb([
-        [1, 1, 1, 1, 2, 6],
-        [0, 0, 1, 4, 5, 3],
-    ])
+    frame.set_yxmrgb(
+        np.array(
+            [
+                [1, 1, 1, 1, 2, 6],
+                [0, 0, 1, 4, 5, 3],
+            ],
+            np.int32,
+        )
+    )
 
     energy = spatial_w * np.exp(-((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * spatial_srgb ** 2) - ((1 - 0) ** 2 + (1 - 0)**2) / (2 * spatial_sxy ** 2))
 
@@ -178,12 +186,22 @@ def test_temporal_energy():
     frame_1 = crf.push_frame()
     frame_2 = crf.push_frame()
 
-    frame_1.set_yxmrgb([
-        [0, 0, 1, 1, 2, 6],
-    ])
-    frame_2.set_yxmrgb([
-        [0, 0, 1, 4, 5, 3],
-    ])
+    frame_1.set_yxmrgb(
+        np.array(
+            [
+                [0, 0, 1, 1, 2, 6],
+            ],
+            np.int32,
+        )
+    )
+    frame_2.set_yxmrgb(
+        np.array(
+            [
+                [0, 0, 1, 4, 5, 3],
+            ],
+            np.int32,
+        )
+    )
 
     energy = temporal_w * np.exp(-(((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * temporal_srgb ** 2)))
 

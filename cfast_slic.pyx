@@ -50,7 +50,7 @@ cdef class BaseSlicModel:
         cdef cfast_slic.Cluster* cluster
         cdef int i
 
-        cdef np.ndarray[np.int16_t, ndim=2, mode='c'] result = np.ndarray([self.num_components, 6], dtype=np.int16)
+        cdef np.ndarray[np.int32_t, ndim=2, mode='c'] result = np.ndarray([self.num_components, 6], dtype=np.int32)
         for i in range(0, self.num_components):
             cluster = self._c_clusters + i
             result[i, 0] = cluster.y

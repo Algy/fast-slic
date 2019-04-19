@@ -7,7 +7,7 @@ cimport cfast_slic as cs
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memset
-from libc.stdint cimport uint32_t
+from libc.stdint cimport uint32_t, int32_t
 from libcpp.vector cimport vector
 from cython.operator cimport dereference as deref, preincrement
 
@@ -103,19 +103,21 @@ cdef class SimpleCRFFrame:
             free(clusters)
         return result
 
-    def set_yxmrgb(self, yxmrgb):
-        if self.num_nodes != len(yxmrgb):
-            raise ValueError("Expected len(yxmrgb) to be {}".format(self.num_nodes))
-        cdef long i, y, x, r, g, b
+    cpdef set_yxmrgb(self, int32_t[:,::1] yxmrgb):
+        if self.num_nodes != yxmrgb.shape[0]:
+            raise ValueError("Expected the first dimension of yxmrgb to equal to {}".format(self.num_nodes))
+        if 6 != yxmrgb.shape[1]:
+            raise ValueError("Expected the second dimension of yxmrgb to equal to 6")
+        cdef int i, y, x, r, g, b
         cdef cs.Cluster *clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * len(yxmrgb));
         try:
-            for i, (y, x, m, r, g, b) in enumerate(yxmrgb):
-                clusters[i].y = y
-                clusters[i].x = x
-                clusters[i].num_members = m
-                clusters[i].r = r
-                clusters[i].g = g
-                clusters[i].b = b
+            for i in range(yxmrgb.shape[0]):
+                clusters[i].y = yxmrgb[i, 0]
+                clusters[i].x = yxmrgb[i, 1]
+                clusters[i].num_members = yxmrgb[i, 2]
+                clusters[i].r = yxmrgb[i, 3]
+                clusters[i].g = yxmrgb[i, 4]
+                clusters[i].b = yxmrgb[i, 5]
                 clusters[i].number = i
             self._c_frame.set_clusters(clusters)
         finally:
