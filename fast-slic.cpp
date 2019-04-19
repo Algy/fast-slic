@@ -619,6 +619,35 @@ extern "C" {
         delete [] conn->neighbors;
         delete conn;
     }
+
+    void fast_slic_get_mask_density(int H, int W, int K, const Cluster *clusters, const uint32_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) {
+        int *sum = new int[K];
+        std::fill_n(sum, K, 0);
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                uint32_t cluster_no = assignment[W * i + j];
+                if (cluster_no < (uint32_t)K)
+                    sum[cluster_no] += mask[W * i + j];
+            }
+        }
+
+        for (int k = 0; k < K; k++) {
+            cluster_densities[k] = (uint8_t)my_min<int>(255, sum[k] / my_max(clusters[k].num_members, 1u));
+        }
+        delete [] sum;
+    }
+
+    void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint32_t* assignment, const uint8_t *cluster_densities, uint8_t *result) {
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                uint32_t cluster_no = assignment[W * i + j];
+                if (cluster_no < (uint32_t)K)
+                    result[W * i + j] = cluster_densities[cluster_no];
+                else
+                    result[W * i + j] = 0;
+            }
+        }
+    }
 }
 
 #ifdef PROTOTYPE_MAIN_DEMO

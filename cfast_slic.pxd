@@ -26,6 +26,8 @@ cdef extern from "fast-slic.h":
     Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint32_t *assignment) nogil
     Connectivity* fast_slic_knn_connectivity(int K, const Cluster* clusters, int num_neighbors) nogil
     void fast_slic_free_connectivity(Connectivity* conn) nogil
+    void fast_slic_get_mask_density(int H, int W, int K, const Cluster* clusters, const uint32_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) nogil
+    void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint32_t* assignment, const uint8_t *cluster_densities, uint8_t *result) nogil
 
 cdef extern from "fast-slic-avx2.h":
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
@@ -50,9 +52,12 @@ cdef class BaseSlicModel:
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, uint8_t compactness, uint8_t quantize_level)
     cpdef get_connectivity(self, const int32_t[:,::1] assignments)
     cpdef get_knn_connectivity(self, size_t num_neighbors)
+    cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int32_t[:, ::1] assignments)
+    cpdef broadcast_density_to_mask(self, const uint8_t[::1] densities, const int32_t[:, ::1] assignments);
     cdef _get_clusters(self)
 
     cpdef _get_name(self)
+
 
 
 cdef class SlicModel(BaseSlicModel):

@@ -146,6 +146,53 @@ cdef class BaseSlicModel:
             conn = cfast_slic.fast_slic_knn_connectivity(K, c_clusters, num_neighbors)
         return NodeConnectivity.create(conn)
 
+    cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int32_t[:, ::1] assignments):
+        cdef int H = assignments.shape[0]
+        cdef int W = assignments.shape[1]
+        cdef int K = self.num_components
+        cdef const cfast_slic.Cluster* _c_clusters = self._c_clusters
+
+        if mask.shape[0] != H or mask.shape[1] != W:
+            raise ValueError("The shape of mask does not match the one of assignments")
+        cdef np.ndarray[np.uint8_t, ndim=1, mode='c'] densities = np.ndarray([K], dtype=np.uint8)
+
+        with nogil:
+            cfast_slic.fast_slic_get_mask_density(
+                H,
+                W,
+                K,
+                _c_clusters,
+                <uint32_t *>&assignments[0, 0],
+                &mask[0, 0],
+                <uint8_t *>&densities[0],
+            )
+        return densities
+
+    cpdef broadcast_density_to_mask(self, const uint8_t[::1] densities, const int32_t[:, ::1] assignments):
+        cdef int H = assignments.shape[0]
+        cdef int W = assignments.shape[1]
+        cdef int K = self.num_components
+        cdef const cfast_slic.Cluster* _c_clusters = self._c_clusters
+        if densities.shape[0] != K:
+            raise ValueError("The shape of densities should match the number of clusters")
+        cdef np.ndarray[np.uint8_t, ndim=2, mode='c'] mask = np.ndarray([H, W], dtype=np.uint8)
+        with nogil:
+            cfast_slic.fast_slic_cluster_density_to_mask(
+                H,
+                W,
+                K,
+                _c_clusters,
+                <uint32_t *>&assignments[0, 0],
+                &densities[0],
+                <uint8_t *>&mask[0, 0],
+            )
+
+        return mask
+
+        
+
+
+
     def __dealloc__(self):
         if self._c_clusters is not NULL:
             free(self._c_clusters)
