@@ -60,7 +60,7 @@ void SimpleCRFFrame::reset_inferred() {
 
 static inline float pow2(float a) { return a * a; }
 
-float SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const {
+float inline SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const {
     if (this == &other) return 0;
     const Cluster &cluster_1 = clusters[node];
     const Cluster &cluster_2 = other.clusters[node];
@@ -74,7 +74,7 @@ float SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const SimpleCRFFra
     return weight * expf(exponent);
 }
 
-float SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const {
+float inline SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const {
     if (node_i == node_j) return 0;
 
     const Cluster &cluster_1 = clusters[node_i];
