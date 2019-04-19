@@ -46,18 +46,19 @@ cdef class BaseSlicModel:
             )
         return result
 
-    def to_yxrgb(self):
+    def to_yxmrgb(self):
         cdef cfast_slic.Cluster* cluster
         cdef int i
 
-        cdef np.ndarray[np.int16_t, ndim=2, mode='c'] result = np.ndarray([self.num_components, 5], dtype=np.int16)
+        cdef np.ndarray[np.int16_t, ndim=2, mode='c'] result = np.ndarray([self.num_components, 6], dtype=np.int16)
         for i in range(0, self.num_components):
             cluster = self._c_clusters + i
             result[i, 0] = cluster.y
             result[i, 1] = cluster.x
-            result[i, 2] = cluster.r
-            result[i, 3] = cluster.g
-            result[i, 4] = cluster.b
+            result[i, 2] = cluster.num_members
+            result[i, 3] = cluster.r
+            result[i, 4] = cluster.g
+            result[i, 5] = cluster.b
         return result
 
     @property

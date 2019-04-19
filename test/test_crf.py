@@ -71,7 +71,7 @@ def test_unaries():
     # Unary: -log(probability)
     prob = np.array(
         [[0.7, 0.5, 0.1],
-         [0.1, 0.3, 0.05],
+         [0.1, 0.3, 0.15],
          [0.2, 0.2, 0.75]],
         np.float32
     )
@@ -85,7 +85,7 @@ def test_proba():
     # Unary: -log(probability)
     prob = np.array(
         [[0.7, 0.5, 0.1],
-         [0.1, 0.3, 0.05],
+         [0.1, 0.3, 0.15],
          [0.2, 0.2, 0.75]],
         np.float32
     )
@@ -106,21 +106,21 @@ def test_initial_inferred():
     assert np.isclose(frame.get_inferred(), 1 / 3.).all()
 
 
-def test_set_yxrgb():
+def test_set_yxmrgb():
     crf = SimpleCRF(3, 3)
     frame = crf.push_frame()
-    frame.set_yxrgb(
+    frame.set_yxmrgb(
         [
-            [1,2,3,4,5],
-            [6,7,8,9,10],
-            [11,12,13,14,15],
+            [1,2,1,3,4,5],
+            [6,7,2,8,9,10],
+            [11,12,3, 13,14,15],
         ]
     )
-    res = frame.get_yxrgb()
+    res = frame.get_yxmrgb()
     assert len(res) == 3
-    assert res[0] == [1,2,3,4,5]
-    assert res[1] == [6,7,8,9,10]
-    assert res[2] == [11,12,13,14,15]
+    assert res[0] == [1,2,1,3,4,5]
+    assert res[1] == [6,7,2,8,9,10]
+    assert res[2] == [11,12,3, 13,14,15]
 
 
 def test_set_connectivity():
@@ -149,9 +149,9 @@ def test_spatial_energy():
 
     frame = crf.push_frame()
 
-    frame.set_yxrgb([
-        [1, 1, 1, 2, 6],
-        [0, 0, 4, 5, 3],
+    frame.set_yxmrgb([
+        [1, 1, 1, 1, 2, 6],
+        [0, 0, 1, 4, 5, 3],
     ])
 
     energy = spatial_w * np.exp(-((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * spatial_srgb ** 2) - ((1 - 0) ** 2 + (1 - 0)**2) / (2 * spatial_sxy ** 2))
@@ -178,11 +178,11 @@ def test_temporal_energy():
     frame_1 = crf.push_frame()
     frame_2 = crf.push_frame()
 
-    frame_1.set_yxrgb([
-        [0, 0, 1, 2, 6],
+    frame_1.set_yxmrgb([
+        [0, 0, 1, 1, 2, 6],
     ])
-    frame_2.set_yxrgb([
-        [0, 0, 4, 5, 3],
+    frame_2.set_yxmrgb([
+        [0, 0, 1, 4, 5, 3],
     ])
 
     energy = temporal_w * np.exp(-(((1 - 4) ** 2 + (2 - 5) ** 2 + (6 - 3) ** 2) / (2 * temporal_srgb ** 2)))

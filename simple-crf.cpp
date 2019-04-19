@@ -31,9 +31,18 @@ void SimpleCRFFrame::normalize() {
     }
 }
 
+void SimpleCRFFrame::add_weight_to_unaries() {
+    for (size_t cls = 0; cls < num_classes; cls++) {
+        for (size_t i = 0; i < num_nodes; i++) {
+            // unaries[cls * num_nodes + i] *= clusters[i].num_members;
+        }
+    }
+}
+
 void SimpleCRFFrame::set_unbiased() {
     float unary_const = logf((float)num_classes);
     std::fill(unaries.begin(), unaries.end(), unary_const);
+    add_weight_to_unaries();
 }
 
 void SimpleCRFFrame::set_mask(const int* classes, float confidence) {
@@ -47,15 +56,18 @@ void SimpleCRFFrame::set_mask(const int* classes, float confidence) {
         int active_cls = classes[i];
         unaries[num_nodes * active_cls + i] = active_unary;
     }
+    add_weight_to_unaries();
 }
 
 
 void SimpleCRFFrame::set_proba(const float* probas) {
     std::transform(probas, probas + space_size(), unaries.begin(), [](float proba) -> float { return -logf(proba); });
+    add_weight_to_unaries();
 }
 
 void SimpleCRFFrame::reset_inferred() {
     std::transform(unaries.begin(), unaries.end(), q.begin(), [](float unary) -> float { return expf(-unary); });
+    normalize();
 }
 
 
@@ -79,17 +91,18 @@ void SimpleCRF::infer_once() {
                     float neighbor_q = frame.q[num_nodes * cls + neighbor];
                     // 1. spatial pairwise energy
                     float spatial_energy = frame.calc_spatial_pairwise_energy(neighbor, i);
-                    message += spatial_energy * neighbor_q;
+                    message += spatial_energy * neighbor_q * sqrtf((float)frame.clusters[neighbor].num_members / frame.clusters[i].num_members);
                 }
 
                 if (t > first_time) {
                     const SimpleCRFFrame& prev_frame = get_frame(t - 1);
-                    message += frame.calc_temporal_pairwise_energy(i, prev_frame) * prev_frame.q[num_nodes * cls + i];
+                    message += frame.calc_temporal_pairwise_energy(i, prev_frame) * prev_frame.q[num_nodes * cls + i] * sqrtf((float)prev_frame.clusters[i].num_members / frame.clusters[i].num_members);
                 }
 
                 if (t < last_time) {
                     const SimpleCRFFrame& next_frame = get_frame(t + 1);
-                    message += frame.calc_temporal_pairwise_energy(i, next_frame) * next_frame.q[num_nodes * cls + i];
+                    message += frame.calc_temporal_pairwise_energy(i, next_frame) * next_frame.q[num_nodes * cls + i] * sqrtf((float)next_frame.clusters[i].num_members / frame.clusters[i].num_members);
+;
                 }
                 messages[cls * num_nodes + i] = message;
             }

@@ -26,7 +26,11 @@ private:
     // States
     std::vector<float> q; // [num_classes, num_nodes]
 public:
-    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes), unaries(space_size()), q(space_size()) {}
+    SimpleCRFFrame(SimpleCRF &parent, size_t time, size_t num_classes, size_t num_nodes) : parent(parent), time(time), num_classes(num_classes), num_nodes(num_nodes), clusters(num_nodes), edges(num_nodes), unaries(space_size()), q(space_size()) {
+        for (auto& cluster : clusters) {
+            cluster.num_members = 1;
+        }
+    }
 
 
     void get_clusters(Cluster* clusters) {
@@ -141,6 +145,7 @@ float inline SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const Simpl
     ) / 2.0f;
     return weight * expf(exponent);
 }
+
 float inline SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const {
     if (node_i == node_j) return 0;
 

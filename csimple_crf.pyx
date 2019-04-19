@@ -85,7 +85,7 @@ cdef class SimpleCRFFrame:
         self._c_frame.get_unary(&unaries[0, 0])
         return unaries
 
-    def get_yxrgb(self):
+    def get_yxmrgb(self):
         result = []
         cdef cs.Cluster* clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * self.num_nodes)
         try:
@@ -94,6 +94,7 @@ cdef class SimpleCRFFrame:
                 result.append([
                     clusters[i].y,
                     clusters[i].x,
+                    clusters[i].num_members,
                     clusters[i].r,
                     clusters[i].g,
                     clusters[i].b,
@@ -102,15 +103,16 @@ cdef class SimpleCRFFrame:
             free(clusters)
         return result
 
-    def set_yxrgb(self, yxrgb):
-        if self.num_nodes != len(yxrgb):
-            raise ValueError("Expected len(yxrgb) to be {}".format(self.num_nodes))
+    def set_yxmrgb(self, yxmrgb):
+        if self.num_nodes != len(yxmrgb):
+            raise ValueError("Expected len(yxmrgb) to be {}".format(self.num_nodes))
         cdef long i, y, x, r, g, b
-        cdef cs.Cluster *clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * len(yxrgb));
+        cdef cs.Cluster *clusters = <cs.Cluster*>malloc(sizeof(cs.Cluster) * len(yxmrgb));
         try:
-            for i, (y, x, r, g, b) in enumerate(yxrgb):
+            for i, (y, x, m, r, g, b) in enumerate(yxmrgb):
                 clusters[i].y = y
                 clusters[i].x = x
+                clusters[i].num_members = m
                 clusters[i].r = r
                 clusters[i].g = g
                 clusters[i].b = b
@@ -321,7 +323,7 @@ cdef class SimpleCRF:
 
     cpdef push_slic_frame(self, slic, knn=None):
         frame = self.push_frame()
-        frame.set_yxrgb(slic.slic_model.to_yxrgb())
+        frame.set_yxmrgb(slic.slic_model.to_yxmrgb())
         if knn is None:
             frame.set_connectivity(slic.slic_model.get_connectivity(slic.last_assignment))
         else:
