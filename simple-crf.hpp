@@ -9,6 +9,8 @@
 #include <functional>
 #include "simple-crf.h"
 
+static inline float pow2(float a) { return a * a; }
+
 struct SimpleCRFFrame {
 private:
     SimpleCRF& parent;
@@ -53,8 +55,8 @@ public:
     void get_unary(float *unaries_out) const {
         std::copy(this->unaries.begin(), this->unaries.end(), unaries_out);
     }
-    float calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const;
-    float calc_spatial_pairwise_energy(int node_i, int node_j) const;
+    float inline calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const;
+    float inline calc_spatial_pairwise_energy(int node_i, int node_j) const;
 private:
     friend SimpleCRF;
 };
@@ -126,4 +128,45 @@ private:
     void infer_once();
 };
 
+float inline SimpleCRFFrame::calc_temporal_pairwise_energy(int node, const SimpleCRFFrame& other) const {
+    if (this == &other) return 0;
+    const Cluster &cluster_1 = clusters[node];
+    const Cluster &cluster_2 = other.clusters[node];
+    float stdev = parent.params.temporal_srgb;
+    float weight = parent.params.temporal_w;
+    float exponent = -(
+        pow2((cluster_1.r - cluster_2.r) / stdev) +
+        pow2((cluster_1.g - cluster_2.g) / stdev) +
+        pow2((cluster_1.b - cluster_2.b) / stdev)
+    ) / 2.0f;
+    return weight * expf(exponent);
+}
+float inline SimpleCRFFrame::calc_spatial_pairwise_energy(int node_i, int node_j) const {
+    if (node_i == node_j) return 0;
+
+    const Cluster &cluster_1 = clusters[node_i];
+    const Cluster &cluster_2 = clusters[node_j];
+    float stdev = parent.params.spatial_srgb, weight = parent.params.spatial_w;
+    float sxy = parent.params.spatial_sxy;
+    float smooth_weight = parent.params.spatial_smooth_w;
+    float smooth_sxy = parent.params.spatial_smooth_sxy;
+    float exponent = -(
+        pow2((cluster_1.r - cluster_2.r) / stdev) +
+        pow2((cluster_1.g - cluster_2.g) / stdev) +
+        pow2((cluster_1.b - cluster_2.b) / stdev)
+    ) / 2.0f;
+
+    exponent += -(
+        pow2((cluster_1.x - cluster_2.x) / sxy) + 
+        pow2((cluster_1.y - cluster_2.y) / sxy)
+    ) / 2.0f;
+
+    float smooth_exponent = -(
+        pow2((cluster_1.x - cluster_2.x) / smooth_sxy) + 
+        pow2((cluster_1.y - cluster_2.y) / smooth_sxy)
+    ) / 2.0f;
+    return weight * expf(exponent) + smooth_weight * expf(smooth_exponent);
+}
+
 #endif
+
