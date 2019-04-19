@@ -5,3 +5,4 @@ global-include *.h
 global-include *.hpp
 exclude cfast_slic.c
 exclude cfast_slic.cpp
+exclude csimple_crf.cpp

@@ -33,6 +33,7 @@
 
 cfast_slic.c
 cfast_slic.cpp
+csimple_crf.cpp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -106,6 +106,14 @@ setup(
                 extra_link_args=extra_link_args,
                 language="c++",
             ),
+            Extension(
+                "csimple_crf",
+                include_dirs=[np.get_include()],
+                sources=["simple-crf.cpp", "csimple_crf.pyx"],
+                extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+                language="c++",
+            )
         ]
     )
 )
