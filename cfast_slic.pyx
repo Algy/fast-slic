@@ -5,7 +5,7 @@ cimport numpy as np
 
 import numpy as np
 
-from libc.stdint cimport uint8_t, int32_t, uint32_t
+from libc.stdint cimport uint8_t, int32_t, uint32_t, uint16_t
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy, memset
 
@@ -46,6 +46,38 @@ cdef class BaseSlicModel:
             )
         return result
 
+    cdef _set_clusters(self, clusters):
+        cdef uint8_t r, g, b
+        cdef uint16_t x, y
+        cdef uint32_t num_members
+        cdef int num_new_clusters, i
+        cdef cfast_slic.Cluster* new_clusters
+
+        num_new_clusters = len(clusters)
+        new_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_new_clusters)
+        try:
+            for i in range(num_new_clusters):
+                dict_ = clusters[i]
+                y, x = dict_['yx']
+                r, g, b = dict_['color']
+                num_members = dict_['num_members']
+
+                new_clusters[i].number = i
+                new_clusters[i].y = y
+                new_clusters[i].x = x
+                new_clusters[i].r = r
+                new_clusters[i].g = g
+                new_clusters[i].b = b
+                new_clusters[i].num_members = num_members
+        except:
+            free(new_clusters)
+            raise
+        if self._c_clusters is not NULL:
+            free(self._c_clusters)
+        self._c_clusters = new_clusters
+        self.num_components = num_new_clusters
+        self.initialized = True
+
     def to_yxmrgb(self):
         cdef cfast_slic.Cluster* cluster
         cdef int i
@@ -64,6 +96,10 @@ cdef class BaseSlicModel:
     @property
     def clusters(self):
         return self._get_clusters()
+
+    @clusters.setter
+    def clusters(self, clusters):
+        self._set_clusters(clusters)
 
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image):

@@ -2,12 +2,12 @@ class BaseSlic(object):
     def __init__(self, num_components, slic_model, compactness, quantize_level):
         self.compactness = compactness
         self.quantize_level = quantize_level
-        self._slic_model = slic_model or self.make_slic_model(num_components or 100)
+        self._slic_model = slic_model and slic_model.copy() or self.make_slic_model(num_components or 100)
         self._last_assignment = None
 
     @property
     def slic_model(self):
-        return self._slic_model.copy()
+        return self._slic_model
 
     @property
     def last_assignment(self):

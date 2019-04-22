@@ -55,6 +55,7 @@ cdef class BaseSlicModel:
     cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int32_t[:, ::1] assignments)
     cpdef broadcast_density_to_mask(self, const uint8_t[::1] densities, const int32_t[:, ::1] assignments);
     cdef _get_clusters(self)
+    cdef _set_clusters(self, clusters)
 
     cpdef _get_name(self)
 
