@@ -63,7 +63,7 @@ struct Context {
     int W;
     int K;
     int16_t S;
-    uint8_t compactness;
+    uint32_t compactness;
     uint8_t quantize_level;
     Cluster* clusters;
     uint32_t* assignment;
@@ -474,7 +474,7 @@ extern "C" {
         }
     }
 
-    void fast_slic_iterate(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
+    void fast_slic_iterate(int H, int W, int K, uint32_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
 
         Context context;
         init_context(&context);

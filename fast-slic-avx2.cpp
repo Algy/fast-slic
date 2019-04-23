@@ -60,7 +60,7 @@ struct Context {
     int W;
     int K;
     int16_t S;
-    uint8_t compactness;
+    uint32_t compactness;
     uint8_t quantize_level;
     Cluster* __restrict__ clusters;
     uint32_t* __restrict__ aligned_assignment_base;
@@ -77,7 +77,7 @@ static void init_context(Context *context) {
 static void prepare_spatial(Context *context) {
     int16_t S = context->S;
     int8_t quantize_level = context->quantize_level;
-    uint8_t compactness = context->compactness;
+    uint32_t compactness = context->compactness;
 
     uint16_t* spatial_normalize_cache = new uint16_t[2 * S + 2];
     context->spatial_normalize_cache = spatial_normalize_cache;
@@ -660,7 +660,7 @@ extern "C" {
             clusters[k].num_members = 0;
         }
     }
-    void fast_slic_iterate_avx2(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
+    void fast_slic_iterate_avx2(int H, int W, int K, uint32_t compactness, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
         Context context;
         int S = sqrt(H * W / K);
         init_context(&context);
@@ -751,7 +751,7 @@ extern "C" {
 
 extern "C" {
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) {}
-    void fast_slic_iterate_avx2(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {}
+    void fast_slic_iterate_avx2(int H, int W, int K, uint32_t compactness, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {}
 int fast_slic_supports_avx2() { return 0; }
 }
 
