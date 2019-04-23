@@ -1,193 +1,29 @@
-#include <cstdint>
-#include <cmath>
-#include <algorithm>
-#include <vector>
-#include <unordered_set>
-#include <cstring>
 #include <cassert>
-#include <iostream>
-#include <iomanip>
 
-#include <immintrin.h>
 #include "fast-slic-avx2.h"
-#include "simd-helper.hpp"
-
-#define CHARBIT 8
-
-#ifdef _MSC_VER
-#define __restrict__ __restrict
-#endif
+#include "fast-slic-common-impl.hpp"
 
 #ifdef USE_AVX2
-template <typename T>
-static inline T my_max(T x, T y) {
-    return (x > y) ? x : y;
-}
+#include <immintrin.h>
 
-
-template <typename T>
-static inline T my_min(T x, T y) {
-    return (x < y) ? x : y;
-}
-
-
-template <typename T>
-static T fast_abs(T n)
-{
-    if (n < 0)
-        return -n;
-    return n;
-}
-
-template <typename T>
-static T ceil_int(T numer, T denom) {
-    return (numer + denom - 1) / denom;
-}
-
-template <typename T>
-static T round_int(T numer, T denom) {
-    return (numer + (denom / 2)) / denom;
-}
-
-struct Context {
-    const uint8_t* __restrict__ image;
-    uint8_t* __restrict__ aligned_quad_image_base;
-    uint8_t* __restrict__ aligned_quad_image; // copied image
+class Context : public BaseContext {
+public:
+    uint8_t* __restrict__ aligned_quad_image_base = nullptr;
+    uint8_t* __restrict__ aligned_quad_image = nullptr; // copied image
     uint16_t quad_image_memory_width;
-
-    const char* algorithm;
-    int H;
-    int W;
-    int K;
-    int16_t S;
-    float compactness;
-    uint8_t quantize_level;
-    Cluster* __restrict__ clusters;
-    uint32_t* __restrict__ aligned_assignment_base;
-    uint32_t* __restrict__ aligned_assignment;
+    uint32_t* __restrict__ aligned_assignment_base = nullptr;
+    uint32_t* __restrict__ aligned_assignment = nullptr;
     int assignment_memory_width; // memory width of aligned_assignment
-    uint16_t* __restrict__ spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
-    uint16_t* __restrict__ spatial_dist_patch;
+public:
+    virtual ~Context() {
+        if (aligned_quad_image_base) {
+            simd_helper::free_aligned_array(aligned_quad_image_base);
+        }
+        if (aligned_assignment_base) {
+            simd_helper::free_aligned_array(aligned_assignment_base);
+        }
+    }
 };
-
-static void init_context(Context *context) {
-    memset(context, 0, sizeof(Context));
-}
-
-static void prepare_spatial(Context *context) {
-    int16_t S = context->S;
-    int8_t quantize_level = context->quantize_level;
-    float compactness = context->compactness;
-
-    uint16_t* spatial_normalize_cache = new uint16_t[2 * S + 2];
-    context->spatial_normalize_cache = spatial_normalize_cache;
-    for (int x = 0; x < 2 * S + 2; x++) {
-        // rescale distance [0, 1] to [0, 25.5] (color-scale).
-        context->spatial_normalize_cache[x] = (uint16_t)(compactness * ((float)x / (2 * S) * 25.5f) * (1 << quantize_level));
-
-    }
-
-    const uint16_t patch_height = 2 * S + 1, patch_virtual_width = 2 * S + 1;
-    const uint16_t patch_memory_width = simd_helper::align_to_next(patch_virtual_width);
-
-    uint16_t* spatial_dist_patch = simd_helper::alloc_aligned_array<uint16_t>(patch_height * patch_memory_width);
-    uint16_t row_first_manhattan = 2 * S;
-    // first half lines
-    for (int i = 0; i < S; i++) {
-        uint16_t current_manhattan = row_first_manhattan--;
-        // first half columns
-        for (int j = 0; j < S; j++) {
-            uint16_t val = spatial_normalize_cache[current_manhattan--];
-            spatial_dist_patch[i * patch_memory_width + j] = val;
-        }
-        // half columns next to the first columns
-        for (int j = S; j <= 2 * S; j++) {
-            uint16_t val = spatial_normalize_cache[current_manhattan++];
-            spatial_dist_patch[i * patch_memory_width + j] = val;
-        }
-    }
-
-    // next half lines
-    for (int i = S; i <= 2 * S; i++) {
-        uint16_t current_manhattan = row_first_manhattan++;
-        // first half columns
-        for (int j = 0; j < S; j++) {
-            uint16_t val = spatial_normalize_cache[current_manhattan--];
-            spatial_dist_patch[i * patch_memory_width + j] = val;
-        }
-        // half columns next to the first columns
-        for (int j = S; j <= 2 * S; j++) {
-            uint16_t val = spatial_normalize_cache[current_manhattan++];
-            spatial_dist_patch[i * patch_memory_width + j] = val;
-        }
-    }
-    context->spatial_dist_patch = spatial_dist_patch;
-}
-
-static void free_context(Context *context) {
-    // std::cerr << "Freeing Spatial normalize cache" <<std::endl;
-    if (context->spatial_normalize_cache)
-        delete [] context->spatial_normalize_cache;
-    // std::cerr << "Freeing Aligned quad image" <<std::endl;
-    if (context->aligned_quad_image_base) {
-        simd_helper::free_aligned_array(context->aligned_quad_image_base);
-    }
-    // std::cerr << "Freeing Aligned assignment" <<std::endl;
-    if (context->aligned_assignment_base) {
-        simd_helper::free_aligned_array(context->aligned_assignment_base);
-    }
-    // std::cerr << "Freeing spatial dist patch" <<std::endl;
-    if (context->spatial_dist_patch) {
-        simd_helper::free_aligned_array(context->spatial_dist_patch);
-    }
-}
-
-static uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
-{
-    static const uint32_t MASKS[] = {0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF};
-    static const uint32_t SHIFTS[] = {1, 2, 4, 8};
-
-    uint32_t x = xPos;  // Interleave lower 16 bits of x and y, so the bits of x
-    uint32_t y = yPos;  // are in the even positions and bits from y in the odd;
-
-    x = (x | (x << SHIFTS[3])) & MASKS[3];
-    x = (x | (x << SHIFTS[2])) & MASKS[2];
-    x = (x | (x << SHIFTS[1])) & MASKS[1];
-    x = (x | (x << SHIFTS[0])) & MASKS[0];
-
-    y = (y | (y << SHIFTS[3])) & MASKS[3];
-    y = (y | (y << SHIFTS[2])) & MASKS[2];
-    y = (y | (y << SHIFTS[1])) & MASKS[1];
-    y = (y | (y << SHIFTS[0])) & MASKS[0];
-
-    const uint32_t result = x | (y << 1);
-    return result;
-}
-
-
-static uint32_t get_sort_value(int16_t y, int16_t x, int16_t S) {
-    return calc_z_order(y, x);
-}
-
-
-struct ZOrderTuple {
-    uint32_t score;
-    const Cluster* cluster;
-
-    ZOrderTuple(uint32_t score, const Cluster* cluster) : score(score), cluster(cluster) {};
-};
-
-bool operator<(const ZOrderTuple &lhs, const ZOrderTuple &rhs) {
-    return lhs.score < rhs.score;
-}
-
-
-#include <string>
-#include <chrono>
-#include <fstream>
-#include <memory>
-#include <iomanip>
-typedef std::chrono::high_resolution_clock Clock;
 
 static inline
 __m256i get_assignment_value_vec(
@@ -517,161 +353,22 @@ static void slic_update_clusters(Context *context, bool reset_assignment) {
     delete [] cluster_acc_vec;
 }
 
-static void slic_enforce_connectivity(int H, int W, int K, const Cluster* clusters, uint32_t* assignment) {
-    if (K <= 0) return;
-
-    uint8_t *visited = new uint8_t[H * W];
-    std::fill_n(visited, H * W, 0);
-
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            int base_index = W * i + j;
-            if (assignment[base_index] != 0xFFFF) continue;
-
-            std::vector<int> visited_indices;
-            std::vector<int> stack;
-            std::unordered_set<int> adj_cluster_indices;
-            stack.push_back(base_index);
-            while (!stack.empty()) {
-                int index = stack.back();
-                stack.pop_back();
-
-                if (assignment[index] != 0xFFFF) {
-                    adj_cluster_indices.insert(assignment[index]);
-                    continue;
-                } else if (visited[index]) {
-                    continue;
-                }
-                visited[index] = 1;
-                visited_indices.push_back(index);
-
-                int index_j = index % W;
-                // up
-                if (index > W) {
-                    stack.push_back(index - W);
-                }
-
-                // down
-                if (index + W < H * W) {
-                    stack.push_back(index + W);
-                }
-
-                // left
-                if (index_j > 0) {
-                    stack.push_back(index - 1);
-                }
-
-                // right
-                if (index_j + 1 < W) {
-                    stack.push_back(index + 1);
-                }
-            }
-
-            int target_cluster_index = 0;
-            uint32_t max_num_members = 0;
-            for (auto it = adj_cluster_indices.begin(); it != adj_cluster_indices.end(); ++it) {
-                const Cluster* adj_cluster = &clusters[*it];
-                if (max_num_members < adj_cluster->num_members) {
-                    target_cluster_index = adj_cluster->number;
-                    max_num_members = adj_cluster->num_members;
-                }
-            }
-
-            for (auto it = visited_indices.begin(); it != visited_indices.end(); ++it) {
-                assignment[*it] = target_cluster_index;
-            }
-
-        }
-    }
-    delete [] visited;
-}
-
-
 extern "C" {
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
-
-        int *gradients = new int[H * W];
-
-        int num_sep = my_max(1, (int)sqrt((double)K));
-
-        int h = H / num_sep;
-        int w = W / num_sep;
-
-        // compute gradients
-        std::fill_n(gradients, H * W, 1 << 21);
-        for (int i = 1; i < H; i += h) {
-            for (int j = 1; j < W; j += w) {
-                int base_index = i * W + j;
-                int img_base_index = 3 * base_index;
-                int dx = 
-                    fast_abs((int)image[img_base_index + 3] - (int)image[img_base_index - 3]) +
-                    fast_abs((int)image[img_base_index + 4] - (int)image[img_base_index - 2]) +
-                    fast_abs((int)image[img_base_index + 5] - (int)image[img_base_index - 1]);
-                int dy = 
-                    fast_abs((int)image[img_base_index + 3 * W] - (int)image[img_base_index - 3 * W]) +
-                    fast_abs((int)image[img_base_index + 3 * W + 1] - (int)image[img_base_index - 3 * W + 1]) +
-                    fast_abs((int)image[img_base_index + 3 * W + 2] - (int)image[img_base_index - 3 * W + 2]);
-                gradients[base_index] = dx + dy;
-            }
-        }
-
-        int acc_k = 0;
-        for (int i = 0; i < H; i += h) {
-            for (int j = 0; j < W; j += w) {
-                if (acc_k >= K) break;
-
-                int eh = my_min<int>(i + h, H - 1), ew = my_min<int>(j + w, W - 1);
-                int center_y = i + h / 2, center_x = j + w / 2;
-                int min_gradient = 1 << 21;
-                for (int ty = i; ty < eh; ty++) {
-                    for (int tx = j; tx < ew; tx++) {
-                        int base_index = ty * W + tx;
-                        if (min_gradient > gradients[base_index]) {
-                            center_y = ty;
-                            center_x = tx;
-                            min_gradient = gradients[base_index];
-                        }
-
-                    }
-                }
-
-                clusters[acc_k].y = center_y;
-                clusters[acc_k].x = center_x;
-
-
-                acc_k++;
-            }
-        }
-
-        while (acc_k < K) {
-            clusters[acc_k].y = H / 2;
-            clusters[acc_k].x = W / 2;
-            acc_k++;
-        }
-
-        delete [] gradients;
-
-
-        for (int k = 0; k < K; k++) {
-            int base_index = W * clusters[k].y + clusters[k].x;
-            int img_base_index = 3 * base_index;
-            clusters[k].r = image[img_base_index];
-            clusters[k].g = image[img_base_index + 1];
-            clusters[k].b = image[img_base_index + 2];
-            clusters[k].number = k;
-            clusters[k].num_members = 0;
-        }
+        do_fast_slic_initialize_clusters(H, W, K, image, clusters);
     }
+
     void fast_slic_iterate_avx2(int H, int W, int K, float compactness, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
-        Context context;
         int S = sqrt(H * W / K);
-        init_context(&context);
+
+        Context context;
         context.image = image;
         context.algorithm = "cluster_oriented";
         context.H = H;
         context.W = W;
         context.K = K;
         context.S = (int16_t)S;
+        context.assignment = assignment;
         context.compactness = compactness;
         context.quantize_level = quantize_level;
         context.clusters = clusters;
@@ -695,8 +392,7 @@ extern "C" {
         context.assignment_memory_width = assignment_memory_width;
         context.aligned_assignment = &aligned_assignment_base[S * assignment_memory_width + S];
 
-        prepare_spatial(&context);
-
+        context.prepare_spatial();
         {
             // auto t1 = Clock::now();
             __m256i constant = _mm256_set1_epi32(0xFFFFFFFF);
@@ -737,14 +433,10 @@ extern "C" {
             // std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
         }
         // auto t1 = Clock::now();
-        slic_enforce_connectivity(H, W, K, clusters, assignment);
+        slic_enforce_connectivity(&context);
         // auto t2 = Clock::now();
 
         // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-
-        // std::cerr << "Freeing context" <<std::endl;
-        free_context(&context);
-        // std::cerr << "Freeing context. done." <<std::endl;
     }
     int fast_slic_supports_avx2() { return 1; }
 }
