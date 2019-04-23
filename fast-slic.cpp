@@ -415,13 +415,13 @@ extern "C" {
                 int base_index = i * W + j;
                 int img_base_index = 3 * base_index;
                 int dx = 
-                    fast_abs(image[img_base_index + 3] - image[img_base_index - 3]) +
-                    fast_abs(image[img_base_index + 4] - image[img_base_index - 2]) +
-                    fast_abs(image[img_base_index + 5] - image[img_base_index - 1]);
+                    fast_abs((int)image[img_base_index + 3] - (int)image[img_base_index - 3]) +
+                    fast_abs((int)image[img_base_index + 4] - (int)image[img_base_index - 2]) +
+                    fast_abs((int)image[img_base_index + 5] - (int)image[img_base_index - 1]);
                 int dy = 
-                    fast_abs(image[img_base_index + 3 * W] - image[img_base_index - 3 * W]) +
-                    fast_abs(image[img_base_index + 3 * W + 1] - image[img_base_index - 3 * W + 1]) +
-                    fast_abs(image[img_base_index + 3 * W + 2] - image[img_base_index - 3 * W + 2]);
+                    fast_abs((int)image[img_base_index + 3 * W] - (int)image[img_base_index - 3 * W]) +
+                    fast_abs((int)image[img_base_index + 3 * W + 1] - (int)image[img_base_index - 3 * W + 1]) +
+                    fast_abs((int)image[img_base_index + 3 * W + 2] - (int)image[img_base_index - 3 * W + 2]);
                 gradients[base_index] = dx + dy;
             }
         }
