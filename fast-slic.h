@@ -2,6 +2,7 @@
 #define _FAST_SLIC_H
 #ifdef __cplusplus
 
+#include <cstring>
 #include "fast-slic-common.h"
 
 
