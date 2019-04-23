@@ -388,9 +388,9 @@ extern "C" {
         context.aligned_quad_image_base = aligned_quad_image_base;
         context.aligned_quad_image = &aligned_quad_image_base[quad_image_memory_width * S + S * 4];
         uint32_t assignment_memory_width = simd_helper::align_to_next(W + 2 * S);
-        uint32_t *aligned_assignment_base = simd_helper::alloc_aligned_array<uint32_t>((H + 2 * S) * assignment_memory_width);
+        context.aligned_assignment_base = simd_helper::alloc_aligned_array<uint32_t>((H + 2 * S) * assignment_memory_width);
         context.assignment_memory_width = assignment_memory_width;
-        context.aligned_assignment = &aligned_assignment_base[S * assignment_memory_width + S];
+        context.aligned_assignment = &context.aligned_assignment_base[S * assignment_memory_width + S];
 
         context.prepare_spatial();
         {
