@@ -51,6 +51,7 @@ static T round_int(T numer, T denom) {
 
 struct Context {
     const uint8_t* __restrict__ image;
+    uint8_t* __restrict__ aligned_quad_image_base;
     uint8_t* __restrict__ aligned_quad_image; // copied image
     uint16_t quad_image_memory_width;
 
@@ -62,6 +63,7 @@ struct Context {
     uint8_t compactness;
     uint8_t quantize_level;
     Cluster* __restrict__ clusters;
+    uint32_t* __restrict__ aligned_assignment_base;
     uint32_t* __restrict__ aligned_assignment;
     int assignment_memory_width; // memory width of aligned_assignment
     uint16_t* __restrict__ spatial_normalize_cache; // (x) -> (uint16_t)(((uint32_t)x << quantize_level) * M / S / 2 * 3) 
@@ -125,12 +127,12 @@ static void free_context(Context *context) {
     if (context->spatial_normalize_cache)
         delete [] context->spatial_normalize_cache;
     // std::cerr << "Freeing Aligned quad image" <<std::endl;
-    if (context->aligned_quad_image) {
-        simd_helper::free_aligned_array(context->aligned_quad_image);
+    if (context->aligned_quad_image_base) {
+        simd_helper::free_aligned_array(context->aligned_quad_image_base);
     }
     // std::cerr << "Freeing Aligned assignment" <<std::endl;
-    if (context->aligned_assignment) {
-        simd_helper::free_aligned_array(context->aligned_assignment);
+    if (context->aligned_assignment_base) {
+        simd_helper::free_aligned_array(context->aligned_assignment_base);
     }
     // std::cerr << "Freeing spatial dist patch" <<std::endl;
     if (context->spatial_dist_patch) {
@@ -310,17 +312,15 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto quantize_level = context->quantize_level;
     const int16_t S = context->S;
 
-    const uint8_t* __restrict__ aligned_quad_image = (uint8_t* __restrict__)HINT_ALIGNED(context->aligned_quad_image);
+    const uint8_t* __restrict__ aligned_quad_image = context->aligned_quad_image;
     const uint16_t* __restrict__ spatial_dist_patch = (const uint16_t* __restrict__)HINT_ALIGNED(context->spatial_dist_patch);
-    uint32_t* __restrict__ aligned_assignment = (uint32_t* __restrict__)HINT_ALIGNED(context->aligned_assignment);
+    uint32_t* __restrict__ aligned_assignment = context->aligned_assignment;
 
     auto quad_image_memory_width = context->quad_image_memory_width;
 
     // might help to initialize array
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-    assert((long long)aligned_quad_image % 32 == 0);
     assert((long long)spatial_dist_patch % 32 == 0);
-    assert((long long)aligned_assignment % 32 == 0);
 #endif
 
     const uint16_t patch_height = 2 * S + 1, patch_virtual_width = 2 * S + 1;
@@ -359,7 +359,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
         const Cluster *cluster = cluster_sorted_tuples[cluster_sorted_idx].cluster;
         cluster_no_t cluster_number = cluster->number;
-        const int16_t cluster_y = my_min<int16_t>(my_max<int16_t>(cluster->y, S), H - S - 1), cluster_x = my_min<int16_t>(my_max<int16_t>(cluster->x, S), W - S - 1);
+        const int16_t cluster_y = cluster->y, cluster_x = cluster->x;
         const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
 
         // Note: x86-64 is little-endian arch. ABGR order is correct.
@@ -374,7 +374,7 @@ static void slic_assign_cluster_oriented(Context *context) {
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
             assert((long long)spatial_dist_patch_base_row % 32 == 0);
 #endif
-            // not aligned because of x_lo
+            // not aligned
             const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
             uint32_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
 
@@ -585,7 +585,6 @@ static void slic_enforce_connectivity(int H, int W, int K, const Cluster* cluste
 }
 
 
-
 extern "C" {
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
 
@@ -663,37 +662,39 @@ extern "C" {
     }
     void fast_slic_iterate_avx2(int H, int W, int K, uint8_t compactness, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
         Context context;
+        int S = sqrt(H * W / K);
         init_context(&context);
         context.image = image;
         context.algorithm = "cluster_oriented";
         context.H = H;
         context.W = W;
         context.K = K;
-        context.S = (int16_t)sqrt(H * W / K);
+        context.S = (int16_t)S;
         context.compactness = compactness;
         context.quantize_level = quantize_level;
         context.clusters = clusters;
 
+        // Pad image and assignment
         uint32_t quad_image_memory_width;
-        context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next(W * 4);
-
-        uint8_t* aligned_quad_image = simd_helper::alloc_aligned_array<uint8_t>(H * quad_image_memory_width);
-        for (int i = 0; i < H ; i++) {
+        context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next((W + 2 * S) * 4);
+        uint8_t* aligned_quad_image_base = simd_helper::alloc_aligned_array<uint8_t>((H + 2 * S) * quad_image_memory_width);
+        for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
                 for (int k = 0; k < 3; k++) {
-                    aligned_quad_image[i * quad_image_memory_width + 4 * j + k] = image[i * W * 3 + 3 * j + k];
+                    aligned_quad_image_base[(i + S) * quad_image_memory_width + 4 * (j + S) + k] = image[i * W * 3 + 3 * j + k];
                 }
             }
         }
-        context.aligned_quad_image = aligned_quad_image;
-        uint32_t assignment_memory_width = simd_helper::align_to_next(W);
-        uint32_t *aligned_assignment = simd_helper::alloc_aligned_array<uint32_t>(H * assignment_memory_width);
+
+        context.aligned_quad_image_base = aligned_quad_image_base;
+        context.aligned_quad_image = &aligned_quad_image_base[quad_image_memory_width * S + S * 4];
+        uint32_t assignment_memory_width = simd_helper::align_to_next(W + 2 * S);
+        uint32_t *aligned_assignment_base = simd_helper::alloc_aligned_array<uint32_t>((H + 2 * S) * assignment_memory_width);
         context.assignment_memory_width = assignment_memory_width;
-        context.aligned_assignment = aligned_assignment;
+        context.aligned_assignment = &aligned_assignment_base[S * assignment_memory_width + S];
 
         prepare_spatial(&context);
 
-        // Take advantage of aligned_assignment being aligned
         {
             // auto t1 = Clock::now();
             __m256i constant = _mm256_set1_epi32(0xFFFFFFFF);
@@ -702,7 +703,7 @@ extern "C" {
                 #pragma unroll(4)
                 #pragma GCC unroll(4)
                 for (int j = 0; j < W; j += 8) {
-                    _mm256_store_si256((__m256i *)(aligned_assignment + assignment_memory_width * i + j), constant);
+                    _mm256_storeu_si256((__m256i *)&context.aligned_assignment[assignment_memory_width * i + j], constant);
                 }
             }
             // auto t2 = Clock::now();
