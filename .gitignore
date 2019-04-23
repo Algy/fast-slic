@@ -172,3 +172,4 @@ tags
 prof/
 [._]*.un~
 
+*.dSYM/
