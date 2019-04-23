@@ -8,6 +8,7 @@ numpy = "*"
 
 [dev-packages]
 pytest = "*"
+pillow = "*"
 
 [requires]
 python_version = "3.6"

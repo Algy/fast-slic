@@ -1,7 +1,32 @@
 import pytest
+import os
 import numpy as np
 
 from fast_slic import Slic
+from fast_slic.avx2 import SlicAvx2
+from PIL import Image
+
+data_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "data",
+)
+
+
+@pytest.fixture
+def fish_image():
+    with Image.open(os.path.join(data_dir, "fish.jpg")) as img:
+        return np.array(img)
+
+@pytest.fixture
+def fish_image_result():
+    with Image.open(os.path.join(data_dir, "fish_result.png")) as img:
+        return np.array(img)
+
+@pytest.fixture
+def fish_image_avx2_result():
+    with Image.open(os.path.join(data_dir, "fish_result.avx2.png")) as img:
+        return np.array(img)
+
 
 def test_slic_model_clusters():
     x = np.zeros([480, 640, 3], np.uint8)
@@ -28,4 +53,10 @@ def test_slic_model_clusters_setter():
     assert slic.slic_model.clusters == orig_clusters[:10]
     assert slic.slic_model.num_components == 10
     assert slic.num_components == 10
+
+
+def test_slic(fish_image, fish_image_result, fish_image_avx2_result):
+    os.environ["OMP_NUM_THREADS"] = "1"
+    assert (Slic(num_components=256).iterate(fish_image) == fish_image_result).all()
+    assert (SlicAvx2(num_components=256).iterate(fish_image) == fish_image_avx2_result).all()
 
