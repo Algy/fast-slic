@@ -122,7 +122,7 @@ cdef class BaseSlicModel:
         self.initialized = True
 
 
-    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, uint32_t compactness, uint8_t quantize_level): 
+    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, uint8_t quantize_level): 
         if not self.initialized:
             raise RuntimeError("Slic model is not initialized")
         if image.shape[2] != 3:
