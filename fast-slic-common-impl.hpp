@@ -168,14 +168,19 @@ static uint32_t get_sort_value(int16_t y, int16_t x, int16_t S) {
 
 class FlatCCSet {
 public:
-    std::vector<int> component_assignment;
+    int* component_assignment;
 
     int num_components;
     std::vector<int> num_component_members;
     std::vector<uint32_t> component_cluster_nos;
     std::vector<const Cluster *>max_component_adj_clusters;
 public:
-    FlatCCSet(int image_size) : component_assignment(image_size, -1) {};
+    FlatCCSet(int image_size) : component_assignment(new int[image_size]) {
+        std::fill(component_assignment, component_assignment + image_size, -1);
+    };
+    FlatCCSet(const FlatCCSet& other) = delete;
+    FlatCCSet& operator=(const FlatCCSet& other) = delete;
+    ~FlatCCSet() { delete [] component_assignment; }
 };
 
 class ConnectedComponentSet {
