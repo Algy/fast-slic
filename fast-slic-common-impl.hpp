@@ -245,7 +245,7 @@ public:
     inline FlatCCSet flatten(const uint32_t *assignment) {
         FlatCCSet result((int)parents.size());
         int k = 0;
-        for (int i = 0; i < parents.size(); i++) {
+        for (int i = 0; i < (int)parents.size(); i++) {
             int parent = parents[i];
             if (parent < i) {
                 int component_no = result.component_assignment[parent];
@@ -278,66 +278,98 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t1 = Clock::now();
 
-    uint32_t left_cluster_no = assignment[0];
-    for (int j = 1; j < W; j++) {
-        uint32_t cluster_no = assignment[j];
-        if (left_cluster_no == cluster_no) {
-            cc_set.merge(j - 1, j);
-        } else if (cluster_no != 0xFFFF) {
-            cc_set.inform_adjacent_cluster(j - 1, &clusters[cluster_no]);
+    std::vector<int> seam_ys;
+    #pragma omp parallel
+    {
+        bool is_first = true;
+        int seam = 0;
+        #pragma omp for
+        for (int i = 0; i < H; i++) {
+            if (is_first) {
+                is_first = false;
+                seam = i;
+                uint32_t left_cluster_no = assignment[i * W];
+                for (int j = 1; j < W; j++) {
+                    int index = i * W + j;
+                    uint32_t cluster_no = assignment[index];
+                    if (left_cluster_no == cluster_no) {
+                        cc_set.merge(index - 1, index);
+                    } else if (cluster_no != 0xFFFF) {
+                        cc_set.inform_adjacent_cluster(index - 1, &clusters[cluster_no]);
+                    }
+                    left_cluster_no = cluster_no;
+                }
+                continue;
+            }
+
+            uint32_t left_cluster_no;
+            {
+                int index = i * W;
+                int up_index = index - W;
+                uint32_t cluster_no = assignment[index];
+                if (assignment[up_index] == cluster_no) {
+                    cc_set.merge(up_index, index);
+                } else if (cluster_no != 0xFFFF) {
+                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                }
+                left_cluster_no = cluster_no;
+            }
+            for (int j = 1; j < W; j++) {
+                int index = i * W + j;
+                uint32_t cluster_no = assignment[index];
+                int left_index = index - 1, up_index = index - W;
+
+                if (left_cluster_no == cluster_no) {
+                    if (assignment[up_index] == cluster_no) {
+                        if (cc_set.parents[left_index] == cc_set.parents[up_index]) {
+                            cc_set.add_single(left_index, index);
+                        } else {
+                            cc_set.add_single(left_index, index);
+                            cc_set.merge(left_index, up_index);
+                        }
+                    } else {
+                        cc_set.add_single(left_index, index);
+                        if (cluster_no != 0xFFFF) {
+                            cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                        }
+                    }
+                } else {
+                    if (cluster_no != 0xFFFF) {
+                        if (assignment[up_index] == cluster_no) {
+                            cc_set.add_single(up_index, index);
+                        } else {
+                            cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                        }
+                    } else {
+                        if (assignment[up_index] == cluster_no) {
+                            cc_set.add_single(up_index, index);
+                        }
+                    }
+                }
+
+                left_cluster_no = cluster_no;
+            }
         }
-        left_cluster_no = cluster_no;
+
+        #pragma omp critical
+        seam_ys.push_back(seam);
     }
 
-    for (int i = 1; i < H; i++) {
-        uint32_t left_cluster_no;
-        {
-            int index = i * W;
+    for (int i : seam_ys) {
+        if (i <= 0) continue;
+        for (int j = 0; j < W; j++) {
+            int index = i * W + j;
             int up_index = index - W;
             uint32_t cluster_no = assignment[index];
             if (assignment[up_index] == cluster_no) {
-                cc_set.merge(up_index, index);
+                cc_set.merge(index, up_index);
             } else if (cluster_no != 0xFFFF) {
                 cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
             }
-            left_cluster_no = cluster_no;
-        }
-        for (int j = 1; j < W; j++) {
-            int index = i * W + j;
-            uint32_t cluster_no = assignment[index];
-            int left_index = index - 1, up_index = index - W;
-
-            if (left_cluster_no == cluster_no) {
-                if (assignment[up_index] == cluster_no) {
-                    if (cc_set.parents[left_index] == cc_set.parents[up_index]) {
-                        cc_set.add_single(left_index, index);
-                    } else {
-                        cc_set.add_single(left_index, index);
-                        cc_set.merge(left_index, up_index);
-                    }
-                } else {
-                    cc_set.add_single(left_index, index);
-                    if (cluster_no != 0xFFFF) {
-                        cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
-                    }
-                }
-            } else {
-                if (cluster_no != 0xFFFF) {
-                    if (assignment[up_index] == cluster_no) {
-                        cc_set.add_single(up_index, index);
-                    } else {
-                        cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
-                    }
-                } else {
-                    if (assignment[up_index] == cluster_no) {
-                        cc_set.add_single(up_index, index);
-                    }
-                }
-            }
-
-            left_cluster_no = cluster_no;
         }
     }
+
+    auto t21 = Clock::now();
 
     FlatCCSet flat_cc_set = cc_set.flatten(assignment);
     int thres = S * S / 10;
@@ -362,9 +394,10 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t4 = Clock::now();
 
-    std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " ms" << std::endl;
-    std::cerr << "find max cluster: " << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << " ms" << std::endl;
-    std::cerr << "substitute : " << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << " ms" << std::endl;
+    std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
+    std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
+    std::cerr << "find max cluster: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << " us" << std::endl;
+    std::cerr << "substitute : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
 }
 
 static void slic_enforce_connectivity(BaseContext *context) {
