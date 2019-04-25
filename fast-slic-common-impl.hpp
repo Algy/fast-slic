@@ -245,126 +245,116 @@ public:
         }
     }
 
-    inline FlatCCSet flatten(const uint32_t *assignment) {
-        auto t1 = Clock::now();
+    inline std::shared_ptr<FlatCCSet> flatten(const uint32_t *assignment) {
         int size = parents.size();
-        FlatCCSet result(size);
+
+        auto outer_init_t1 = Clock::now();
+
+        std::shared_ptr<FlatCCSet> result_ptr { new FlatCCSet(size) };
+        FlatCCSet &result = *result_ptr;
         if (size == 0)
-            return result;
+            return result_ptr;
 
-        int num_components = 0;
-        #pragma omp parallel 
-        {
-            int acc = 0;
-            #pragma omp for
-            for (int i = 0; i < size; i++) {
-                if (parents[i] == i) acc++;
-            }
-            #pragma omp atomic
-            num_components += acc;
-        }
+        std::vector<int> component_nos;
+        std::vector<int> component_to_real_index(size);
 
 
-        result.num_component_members.resize(num_components);
-        result.component_cluster_nos.resize(num_components);
-        result.max_component_adj_clusters.resize(num_components);
-        auto t2 = Clock::now();
-
-        std::cerr << "flatten prelude : " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " us" << std::endl;
-
-        int k = 0;
+        std::vector<int> pres;
+        std::vector<int> posts;
+        auto outer_init_t2 = Clock::now();
 
         auto outer_t1 = Clock::now();
-
-        std::vector<int> prepare_loops;
-        std::vector<int> main_loops;
-
         #pragma omp parallel
         {
-            int local_k = 0;
-            int local_num_components = 0;
-            int i_start = -1;
+            std::vector<int> local_component_nos;
 
             auto t1 = Clock::now();
-            #pragma omp for schedule(static)
-            for (int i = 0; i < size; i++) {
-                i_start = (i_start == -1)? i : i_start;
-                if (parents[i] == i) local_num_components++;
-            }
-            auto t2 = Clock::now();
 
-            int component_offset;
-            #pragma omp critical
-            {
-                component_offset = k;
-                k += local_num_components;
-            }
-            #pragma omp barrier
-
-            auto t3 = Clock::now();
-
-            #pragma omp for schedule(static)
+            #pragma omp for
             for (int i = 0; i < size; i++) {
                 int parent = parents[i];
-                if (parent < i_start) continue;
-
                 if (parent < i) {
-                    int component_no = result.component_assignment[parent];
+                    int component_no = result.component_assignment[i];
+                    if (component_no == -1) {
+                        while (true) {
+                            component_no = result.component_assignment[parent];
+                            if (component_no != -1) {
+                                break;
+                            }
 
-                    if (component_no != -1) {
-                        result.component_assignment[i] = component_no;
-                        result.num_component_members[component_no]++;
+                            int pp = parents[parent];
+                            if (pp == parent) {
+                                component_no = parent;
+                                break;
+                            }
+                            parent = pp;
+                        }
+                        result.component_assignment[component_no] = component_no;
                     }
-                } else {
-                    int component_no = component_offset + (local_k++);
                     result.component_assignment[i] = component_no;
-                    result.num_component_members[component_no] = 1;
-                    result.component_cluster_nos[component_no] = assignment[i];
-                    result.max_component_adj_clusters[component_no] = max_adj_clusters[i];
+                } else {
+                    result.component_assignment[i] = i;
+                    local_component_nos.push_back(i);
                 }
             }
-            auto t4 = Clock::now();
+            #pragma omp critical
+            component_nos.insert(component_nos.end(), local_component_nos.begin(), local_component_nos.end());
+
+
+            #pragma omp barrier
+
+            #pragma omp single
+            {
+                result.num_components = component_nos.size();
+                result.num_component_members.resize(result.num_components, 0);
+                result.component_cluster_nos.resize(result.num_components);
+                result.max_component_adj_clusters.resize(result.num_components);
+
+            }
+
+            auto t2 = Clock::now();
+
+            
+            #pragma omp for
+            for (int real_index = 0; real_index < (int)component_nos.size(); real_index++) {
+                int component_no = component_nos[real_index];
+                result.component_cluster_nos[real_index] = assignment[component_no];
+                result.max_component_adj_clusters[real_index] = max_adj_clusters[component_no];
+                component_to_real_index[component_no] = real_index;
+            }
+
+            #pragma omp for
+            for (int i = 0; i < size; i++) {
+                int real_index = component_to_real_index[result.component_assignment[i]];
+                result.component_assignment[i] = real_index;
+                result.num_component_members[real_index]++;
+            }
+
+            auto t3 = Clock::now();
+            
             #pragma omp critical
             {
-                prepare_loops.push_back(
-                    (int)std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+                pres.push_back(
+                    std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+                );
+                posts.push_back(
+                    std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count()
                 );
 
-                main_loops.push_back(
-                    (int)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())
-                );
             }
         }
-        assert(num_components == k);
-        result.num_components = num_components;
-
         auto outer_t2 = Clock::now();
 
-
-        for (auto dt: prepare_loops) {
-            std::cerr << "PREPARELOOP: " << dt << "\n";
+        for (auto pre : pres) {
+            //std::cerr << "PRE " << pre << " us" << std::endl;
         }
-        for (auto dt: main_loops) {
-            std::cerr << "MAIN LOOP: " << dt << "\n";
+        for (auto post : posts) {
+           // std::cerr << "POST " << post << " us" << std::endl;
         }
 
-        std::cerr << "parallel loop : " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us" << std::endl;
-
-        // repair elements that lie across boundaries
-        int num_repaired = 0;
-        auto repair_t1 = Clock::now();
-        for (int i = 0; i < size; i++) {
-            int component_no = result.component_assignment[i];
-            if (component_no == -1) {
-                int parent = parents[i];
-                result.component_assignment[i] = component_no = result.component_assignment[parent];
-                result.num_component_members[component_no]++;
-                num_repaired++;
-            }
-        }
-        auto repair_t2 = Clock::now();
-        std::cerr << "repair(" << num_repaired <<"): " << std::chrono::duration_cast<std::chrono::microseconds>(repair_t2 - repair_t1).count() << " us" << std::endl;
-        return result;
+        //std::cerr << "OUTER " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us\n";
+        //std::cerr << "OUTER INIT " << std::chrono::duration_cast<std::chrono::microseconds>(outer_init_t2 - outer_init_t1).count() << " us\n";
+        return result_ptr;
     }
 };
 
@@ -475,7 +465,8 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t21 = Clock::now();
 
-    FlatCCSet flat_cc_set = cc_set.flatten(assignment);
+    std::shared_ptr<FlatCCSet> flat_cc_ptr = cc_set.flatten(assignment);
+    FlatCCSet &flat_cc_set = *flat_cc_ptr;
     int thres = S * S / 10;
 
     auto t2 = Clock::now();
