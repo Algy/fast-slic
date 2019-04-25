@@ -182,12 +182,10 @@ private:
     std::vector<int> num_members;
     std::vector<const Cluster *> max_adj_clusters;
 public:
-    ConnectedComponentSet(int size) : parents(size), num_members(size), max_adj_clusters(size) {
+    ConnectedComponentSet(int size) : parents(size), num_members(size, 1), max_adj_clusters(size, nullptr) {
         for (int i = 0; i < size; i++) {
             parents[i] = i;
         }
-        std::fill(num_members.begin(), num_members.end(), 1);
-        std::fill(max_adj_clusters.begin(), max_adj_clusters.end(), nullptr);
     }
 private:
     inline int find_root(int node) {
@@ -333,7 +331,8 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t2 = Clock::now();
 
-    std::unordered_map<int, uint32_t> component_cluster_subs;
+    std::vector<uint32_t> component_cluster_subs(flat_cc_set.num_components, 0xFFFF);
+
     for (int i = 0; i < flat_cc_set.num_components; i++) {
         if (flat_cc_set.component_cluster_nos[i] == 0xFFFF || flat_cc_set.num_component_members[i] < thres) {
             uint32_t new_cluster_no = (flat_cc_set.max_component_adj_clusters[i] != nullptr)? flat_cc_set.max_component_adj_clusters[i]->number : 0;
@@ -344,10 +343,8 @@ static void fast_enforce_connectivity(BaseContext* context) {
     auto t3 = Clock::now();
 
     for (int i = 0; i < H * W; i++) {
-        auto iter = component_cluster_subs.find(flat_cc_set.component_assignment[i]);
-        if (iter != component_cluster_subs.end()) {
-            assignment[i] = iter->second;
-        }
+        uint32_t sub = component_cluster_subs[flat_cc_set.component_assignment[i]];
+        if (sub != 0xFFFF) assignment[i] = sub;
     }
 
     auto t4 = Clock::now();
