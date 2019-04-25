@@ -495,6 +495,7 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t3 = Clock::now();
 
+    #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
         uint32_t sub = component_cluster_subs[flat_cc_set.component_assignment[i]];
         if (sub != 0xFFFF) assignment[i] = sub;
