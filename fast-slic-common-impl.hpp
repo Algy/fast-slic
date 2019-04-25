@@ -164,104 +164,95 @@ static uint32_t get_sort_value(int16_t y, int16_t x, int16_t S) {
 }
 
 
-class ConnectedComponent {
+class FlatCCSet {
 public:
-    uint32_t cluster_no;
-    std::vector< std::shared_ptr<std::vector<int>> > indices;
-    int num_indices;
-    const Cluster* max_adjacent_cluster;
+    std::vector<int> component_assignment;
+
+    int num_components;
+    std::vector<int> num_component_members;
+    std::vector<uint32_t> component_cluster_nos;
+    std::vector<const Cluster *>max_component_adj_clusters;
 public:
-    ConnectedComponent(uint32_t cluster_no) : cluster_no(cluster_no), num_indices(0), max_adjacent_cluster(nullptr) {
-        indices.push_back(std::shared_ptr< std::vector<int> > { new std::vector<int>() });
-    };
-
-    void merge(ConnectedComponent &&other) {
-        indices.insert(indices.end(), other.indices.begin(), other.indices.end());
-        num_indices += other.num_indices;
-
-        if (other.max_adjacent_cluster != nullptr &&
-                (max_adjacent_cluster == nullptr || max_adjacent_cluster->num_members < other.max_adjacent_cluster->num_members)) {
-            max_adjacent_cluster = other.max_adjacent_cluster;
-        }
-
-        other.num_indices = 0;
-        other.indices.clear();
-        other.max_adjacent_cluster = nullptr;
-    }
-
-    bool empty() {
-        return num_indices <= 0;
-    }
-
-    inline void add(int index) {
-        indices.back()->push_back(index);
-        num_indices++;
-    }
-
-    inline void inform_adjacent_cluster(const Cluster* cluster) {
-        if (max_adjacent_cluster == nullptr || max_adjacent_cluster->num_members < cluster->num_members) {
-            max_adjacent_cluster = cluster;
-        }
-    }
+    FlatCCSet(int image_size) : component_assignment(image_size) {};
 };
 
 class ConnectedComponentSet {
 private:
-    std::vector< ConnectedComponent > components;
     std::vector<int> parents;
-    std::vector<int> ranks;
+    std::vector<int> num_members;
+    std::vector<const Cluster *> max_adj_clusters;
 public:
-    inline int add_component(uint32_t cluster_no) {
-        int id = (int)parents.size();
-        parents.push_back(id);
-        ranks.push_back(1);
-        components.push_back(ConnectedComponent(cluster_no));
-        return id;
-    }
-
-    inline ConnectedComponent& find(int id) {
-        int parent = parents[id];
-        if (parent == id) return components[id]; // fast path
-        int root_id = find_root_with_compression(parent);
-        parents[id] = root_id;
-        return components[root_id];
-    }
-
-    // Union by rank
-    inline int merge(int lhs_id, int rhs_id) {
-        int lhs_root_id = find_root_with_compression(lhs_id), rhs_root_id = find_root_with_compression(rhs_id);
-        if (lhs_root_id == rhs_root_id) return lhs_id;
-
-        ConnectedComponent& lhs = components[lhs_root_id], rhs = components[rhs_root_id];
-
-        if (ranks[lhs_root_id] < ranks[rhs_root_id]) {
-            parents[lhs_root_id] = rhs_root_id;
-        } else if (ranks[lhs_root_id] > ranks[rhs_root_id]) {
-            parents[rhs_root_id] = lhs_root_id;
-        } else {
-            parents[rhs_root_id] = lhs_root_id;
-            ranks[lhs_root_id]++;
+    ConnectedComponentSet(int size) : parents(size), num_members(size), max_adj_clusters(size) {
+        for (int i = 0; i < size; i++) {
+            parents[i] = i;
         }
-        lhs.merge(std::move(rhs));
-        return lhs_root_id;
+        std::fill(num_members.begin(), num_members.end(), 1);
+        std::fill(max_adj_clusters.begin(), max_adj_clusters.end(), nullptr);
     }
-
-    std::vector< ConnectedComponent * > connected_components() {
-        std::vector< ConnectedComponent *> results;
-        for (auto &cc : components) {
-            if (cc.empty()) continue;
-            results.push_back(&cc);
-        }
-        return results;
-    }
-
 private:
-    // Path compression
-    int find_root_with_compression(int id) {
-        if (id == parents[id]) return id;
-        int root = find_root_with_compression(parents[id]);
-        parents[id] = root;
+    inline int find_root(int node) {
+        int parent = parents[node];
+        while (parent < node) {
+            node = parent;
+            parent = parents[parent];
+        }
+        return node;
+    }
+
+    inline void set_root(int root, int node) {
+        for (int i = node; root < i; ) {
+            int parent = parents[i];
+            parents[i] = root;
+            i = parent;
+        }
+    }
+public:
+    inline int find(int node) {
+        int root = find_root(node);
+        set_root(root, node);
         return root;
+    }
+
+    inline int merge(int node_i, int node_j) {
+        int root = find_root(node_i);
+        int root_j = find_root(node_j);
+        if (root_j != root) {
+            int new_num_members = num_members[root] + num_members[root_j];
+            if (root > root_j) std::swap(root, root_j);
+            num_members[root] = new_num_members;
+            if (max_adj_clusters[root] != nullptr && max_adj_clusters[root_j] != nullptr && max_adj_clusters[root]->num_members < max_adj_clusters[root_j]->num_members) {
+                max_adj_clusters[root] = max_adj_clusters[root_j];
+            }
+        }
+        set_root(root, node_i);
+        set_root(root, node_j);
+        return root;
+    }
+
+    void inform_adjacent_cluster(int node, const Cluster *cluster) {
+        int root = find(node);
+        if (max_adj_clusters[root] == nullptr || max_adj_clusters[root]->num_members < cluster->num_members) {
+            max_adj_clusters[root] = cluster;
+        }
+    }
+
+    inline FlatCCSet flatten(const uint32_t *assignment) {
+        FlatCCSet result((int)parents.size());
+        int k = 0;
+        for (int i = 0; i < parents.size(); i++) {
+            int parent = parents[i];
+            if (parent < i) {
+                result.component_assignment[i] = result.component_assignment[parent];
+            } else {
+                result.component_assignment[i] = k;
+                result.num_component_members.push_back(num_members[i]);
+                result.component_cluster_nos.push_back(assignment[i]);
+                result.max_component_adj_clusters.push_back(max_adj_clusters[i]);
+                k++;
+            }
+        }
+        result.num_components = k;
+        return result;
     }
 };
 
@@ -275,95 +266,77 @@ static void fast_enforce_connectivity(BaseContext* context) {
     const Cluster* clusters = context->clusters;
     uint32_t* assignment = context->assignment;
 
-    ConnectedComponentSet cc_set;
+    ConnectedComponentSet cc_set(H * W);
 
-    std::unique_ptr< std::vector<int> > prev_cc_row { new std::vector<int>() };
-
-    // (0, 0)
-    int left_id = cc_set.add_component(assignment[0]);
-    ConnectedComponent* left_cc = &cc_set.find(left_id);
-    prev_cc_row->push_back(left_id);
-
+    uint32_t left_cluster_no = assignment[0];
     for (int j = 1; j < W; j++) {
         uint32_t cluster_no = assignment[j];
-        if (left_cc->cluster_no == cluster_no) {
-            left_cc->add(j);
-        } else {
-            if (cluster_no != 0xFFFF) {
-                left_cc->inform_adjacent_cluster(&clusters[cluster_no]);
-            }
-            int new_id = cc_set.add_component(cluster_no);
-            left_cc = &cc_set.find(new_id);
-            left_id = new_id;
+        if (left_cluster_no == cluster_no) {
+            cc_set.merge(j - 1, j);
+        } else if (cluster_no != 0xFFFF) {
+            cc_set.inform_adjacent_cluster(j - 1, &clusters[cluster_no]);
         }
-        prev_cc_row->push_back(left_id);
+        left_cluster_no = cluster_no;
     }
 
     for (int i = 1; i < H; i++) {
-        std::unique_ptr< std::vector<int> > curr_cc_row { new std::vector<int>() };
-
-        int left_id;
-        ConnectedComponent* left_cc;
+        uint32_t left_cluster_no;
         {
-            uint32_t cluster_no = assignment[i * W];
-            int up_id = (*prev_cc_row)[0];
-            ConnectedComponent* up_cc = &cc_set.find(up_id);
-            if (up_cc->cluster_no == cluster_no) {
-                left_id = up_id;
-                left_cc = up_cc;
-            } else {
-                int new_id = cc_set.add_component(cluster_no);
-                up_cc->inform_adjacent_cluster(&clusters[cluster_no]);
-                left_id = new_id;
-                left_cc = &cc_set.find(new_id);
+            int index = i * W;
+            int up_index = (i - 1) * W;
+            uint32_t cluster_no = assignment[index];
+            if (assignment[up_index] == cluster_no) {
+                cc_set.merge(up_index, index);
+            } else if (cluster_no != 0xFFFF) {
+                cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
             }
+            left_cluster_no = cluster_no;
         }
-        curr_cc_row->push_back(left_id);
-
         for (int j = 1; j < W; j++) {
             int index = i * W + j;
-            uint32_t cluster_no = assignment[index];
-            int up_id = (*prev_cc_row)[j];
-            ConnectedComponent* up_cc = &cc_set.find(up_id);
+            int left_index = i * W + (j - 1);
+            int up_index = (i - 1) * W + j;
 
-            bool left_mergable = left_cc->cluster_no == cluster_no;
-            bool up_mergable = up_cc->cluster_no == cluster_no;
+            uint32_t cluster_no = assignment[index];
+
+            bool left_mergable = left_cluster_no == cluster_no;
+            bool up_mergable = assignment[up_index] == cluster_no;
 
             if (left_mergable && up_mergable) {
-                int merged_id = cc_set.merge(left_id, up_id);
-                left_id = merged_id;
-                left_cc = &cc_set.find(merged_id);
+                cc_set.merge(cc_set.merge(left_index, up_index), index);
             } else if (left_mergable) {
-                left_cc->add(index);
+                cc_set.merge(left_index, index);
                 if (cluster_no != 0xFFFF)
-                    up_cc->inform_adjacent_cluster(&clusters[cluster_no]);
+                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
             } else if (up_mergable) {
-                up_cc->add(index);
+                cc_set.merge(up_index, index);
                 if (cluster_no != 0xFFFF)
-                    left_cc->inform_adjacent_cluster(&clusters[cluster_no]);
+                    cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
             } else {
                 if (cluster_no != 0xFFFF) {
-                    left_cc->inform_adjacent_cluster(&clusters[cluster_no]);
-                    up_cc->inform_adjacent_cluster(&clusters[cluster_no]);
+                    cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                 }
-                int new_id = cc_set.add_component(cluster_no);
-                left_id = new_id;
-                left_cc = &cc_set.find(new_id);
             }
-            curr_cc_row->push_back(left_id);
+            left_cluster_no = cluster_no;
         }
-        prev_cc_row = std::move(curr_cc_row);
     }
 
+    FlatCCSet flat_cc_set = cc_set.flatten(assignment);
     int thres = S * S / 2;
-    for (ConnectedComponent *cc : cc_set.connected_components()) {
-        if (cc->cluster_no == 0xFFFF || cc->num_indices < thres) {
-            uint32_t new_cluster_no = (cc->max_adjacent_cluster != nullptr)? cc->max_adjacent_cluster->number : 0;
-            for (const std::shared_ptr<std::vector<int>> &vector_ptr : cc->indices) {
-                for (int index : *vector_ptr) {
-                    assignment[index] = new_cluster_no;
-                }
-            }
+
+    std::unordered_map<int, uint32_t> component_cluster_subs;
+    for (int i = 0; i < flat_cc_set.num_components; i++) {
+        if (flat_cc_set.component_cluster_nos[i] == 0xFFFF || flat_cc_set.num_component_members[i] < thres) {
+            uint32_t new_cluster_no = (flat_cc_set.max_component_adj_clusters[i] != nullptr)? flat_cc_set.max_component_adj_clusters[i]->number : 0;
+            component_cluster_subs[i] = new_cluster_no;
+        }
+    }
+
+    for (int i = 0; i < H * W; i++) {
+        auto iter = component_cluster_subs.find(flat_cc_set.component_assignment[i]);
+        if (iter != component_cluster_subs.end()) {
+            assignment[i] = iter->second;
         }
     }
 }
