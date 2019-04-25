@@ -256,7 +256,8 @@ public:
             return result_ptr;
 
         std::vector<int> component_nos;
-        std::vector<int> component_to_real_index(size);
+        // std::vector<int> component_to_real_index(size);
+        int *component_to_real_index = new int[size];
 
 
         std::vector<int> pres;
@@ -289,7 +290,17 @@ public:
                             }
                             parent = pp;
                         }
+
                         result.component_assignment[component_no] = component_no;
+                        /*
+                        int iter = parent;
+                        while (true) {
+                            result.component_assignment[iter] = component_no;
+                            int pp = parents[iter];
+                            if (pp == iter) break;
+                            iter = pp;
+                        }
+                        */
                     }
                     result.component_assignment[i] = component_no;
                 } else {
@@ -343,17 +354,19 @@ public:
 
             }
         }
+
+        delete [] component_to_real_index;
         auto outer_t2 = Clock::now();
 
         for (auto pre : pres) {
-            //std::cerr << "PRE " << pre << " us" << std::endl;
+            // std::cerr << "PRE " << pre << " us" << std::endl;
         }
         for (auto post : posts) {
            // std::cerr << "POST " << post << " us" << std::endl;
         }
 
-        //std::cerr << "OUTER " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us\n";
-        //std::cerr << "OUTER INIT " << std::chrono::duration_cast<std::chrono::microseconds>(outer_init_t2 - outer_init_t1).count() << " us\n";
+        std::cerr << "OUTER " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us\n";
+        std::cerr << "OUTER INIT " << std::chrono::duration_cast<std::chrono::microseconds>(outer_init_t2 - outer_init_t1).count() << " us\n";
         return result_ptr;
     }
 };
