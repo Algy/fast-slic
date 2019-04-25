@@ -179,10 +179,9 @@ public:
 class ConnectedComponentSet {
 private:
     std::vector<int> parents;
-    std::vector<int> num_members;
     std::vector<const Cluster *> max_adj_clusters;
 public:
-    ConnectedComponentSet(int size) : parents(size), num_members(size, 1), max_adj_clusters(size, nullptr) {
+    ConnectedComponentSet(int size) : parents(size), max_adj_clusters(size, nullptr) {
         for (int i = 0; i < size; i++) {
             parents[i] = i;
         }
@@ -213,11 +212,8 @@ public:
 
     inline int merge_roots(int root_i, int root_j) {
         int root = root_i;
-
         if (root_j != root) {
-            int new_num_members = num_members[root] + num_members[root_j];
             if (root > root_j) std::swap(root, root_j);
-            num_members[root] = new_num_members;
             if (max_adj_clusters[root] != nullptr && max_adj_clusters[root_j] != nullptr && max_adj_clusters[root]->num_members < max_adj_clusters[root_j]->num_members) {
                 max_adj_clusters[root] = max_adj_clusters[root_j];
             }
@@ -234,6 +230,10 @@ public:
         return root;
     }
 
+    inline void add_single(int node_i, int single_j) {
+        parents[single_j] = node_i;
+    }
+
     void inform_adjacent_cluster(int node, const Cluster *cluster) {
         int root = find(node);
         if (max_adj_clusters[root] == nullptr || max_adj_clusters[root]->num_members < cluster->num_members) {
@@ -247,10 +247,12 @@ public:
         for (int i = 0; i < parents.size(); i++) {
             int parent = parents[i];
             if (parent < i) {
-                result.component_assignment[i] = result.component_assignment[parent];
+                int component_no = result.component_assignment[parent];
+                result.component_assignment[i] = component_no;
+                result.num_component_members[component_no]++;
             } else {
                 result.component_assignment[i] = k;
-                result.num_component_members.push_back(num_members[i]);
+                result.num_component_members.push_back(1);
                 result.component_cluster_nos.push_back(assignment[i]);
                 result.max_component_adj_clusters.push_back(max_adj_clusters[i]);
                 k++;
@@ -305,20 +307,23 @@ static void fast_enforce_connectivity(BaseContext* context) {
             int left_index = index - 1, up_index = index - W;
 
             if (left_cluster_no == cluster_no) {
-                int left_as_root = cc_set.merge(left_index, index);
+                cc_set.add_single(left_index, index);
                 if (assignment[up_index] == cluster_no) {
-                    cc_set.merge(left_as_root, up_index);
+                    cc_set.merge(left_index, up_index);
                 } else if (cluster_no != 0xFFFF) {
                     cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                 }
             } else {
                 if (cluster_no != 0xFFFF) {
-                    cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
-                }
-                if (assignment[up_index] == cluster_no) {
-                    cc_set.merge(up_index, index);
-                } else if (cluster_no != 0xFFFF) {
-                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                    if (assignment[up_index] == cluster_no) {
+                        cc_set.add_single(up_index, index);
+                    } else {
+                        cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                    }
+                } else {
+                    if (assignment[up_index] == cluster_no) {
+                        cc_set.add_single(up_index, index);
+                    }
                 }
             }
 
