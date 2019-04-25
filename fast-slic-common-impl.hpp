@@ -177,8 +177,9 @@ public:
 };
 
 class ConnectedComponentSet {
-private:
+public:
     std::vector<int> parents;
+private:
     std::vector<const Cluster *> max_adj_clusters;
 public:
     ConnectedComponentSet(int size) : parents(size), max_adj_clusters(size, nullptr) {
@@ -231,7 +232,7 @@ public:
     }
 
     inline void add_single(int node_i, int single_j) {
-        parents[single_j] = node_i;
+        parents[single_j] = parents[node_i];
     }
 
     void inform_adjacent_cluster(int node, const Cluster *cluster) {
@@ -307,11 +308,18 @@ static void fast_enforce_connectivity(BaseContext* context) {
             int left_index = index - 1, up_index = index - W;
 
             if (left_cluster_no == cluster_no) {
-                cc_set.add_single(left_index, index);
                 if (assignment[up_index] == cluster_no) {
-                    cc_set.merge(left_index, up_index);
-                } else if (cluster_no != 0xFFFF) {
-                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                    if (cc_set.parents[left_index] == cc_set.parents[up_index]) {
+                        cc_set.add_single(left_index, index);
+                    } else {
+                        cc_set.add_single(left_index, index);
+                        cc_set.merge(left_index, up_index);
+                    }
+                } else {
+                    cc_set.add_single(left_index, index);
+                    if (cluster_no != 0xFFFF) {
+                        cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                    }
                 }
             } else {
                 if (cluster_no != 0xFFFF) {
