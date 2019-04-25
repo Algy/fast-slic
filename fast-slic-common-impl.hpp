@@ -1,6 +1,8 @@
 #include <vector>
 #include <chrono>
+#include <cassert>
 #include <cstring>
+#include <string>
 #include <unordered_set>
 #include <unordered_map>
 #include <memory>
@@ -173,16 +175,17 @@ public:
     std::vector<uint32_t> component_cluster_nos;
     std::vector<const Cluster *>max_component_adj_clusters;
 public:
-    FlatCCSet(int image_size) : component_assignment(image_size) {};
+    FlatCCSet(int image_size) : component_assignment(image_size, -1) {};
 };
 
 class ConnectedComponentSet {
 public:
+    int H, W, size;
     std::vector<int> parents;
 private:
     std::vector<const Cluster *> max_adj_clusters;
 public:
-    ConnectedComponentSet(int size) : parents(size), max_adj_clusters(size, nullptr) {
+    ConnectedComponentSet(int H, int W) : H(H), W(W), size(H * W), parents(size), max_adj_clusters(size, nullptr) {
         for (int i = 0; i < size; i++) {
             parents[i] = i;
         }
@@ -243,23 +246,124 @@ public:
     }
 
     inline FlatCCSet flatten(const uint32_t *assignment) {
-        FlatCCSet result((int)parents.size());
+        auto t1 = Clock::now();
+        int size = parents.size();
+        FlatCCSet result(size);
+        if (size == 0)
+            return result;
+
+        int num_components = 0;
+        #pragma omp parallel 
+        {
+            int acc = 0;
+            #pragma omp for
+            for (int i = 0; i < size; i++) {
+                if (parents[i] == i) acc++;
+            }
+            #pragma omp atomic
+            num_components += acc;
+        }
+
+
+        result.num_component_members.resize(num_components);
+        result.component_cluster_nos.resize(num_components);
+        result.max_component_adj_clusters.resize(num_components);
+        auto t2 = Clock::now();
+
+        std::cerr << "flatten prelude : " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " us" << std::endl;
+
         int k = 0;
-        for (int i = 0; i < (int)parents.size(); i++) {
-            int parent = parents[i];
-            if (parent < i) {
-                int component_no = result.component_assignment[parent];
-                result.component_assignment[i] = component_no;
-                result.num_component_members[component_no]++;
-            } else {
-                result.component_assignment[i] = k;
-                result.num_component_members.push_back(1);
-                result.component_cluster_nos.push_back(assignment[i]);
-                result.max_component_adj_clusters.push_back(max_adj_clusters[i]);
-                k++;
+
+        auto outer_t1 = Clock::now();
+
+        std::vector<int> prepare_loops;
+        std::vector<int> main_loops;
+
+        #pragma omp parallel
+        {
+            int local_k = 0;
+            int local_num_components = 0;
+            int i_start = -1;
+
+            auto t1 = Clock::now();
+            #pragma omp for schedule(static)
+            for (int i = 0; i < size; i++) {
+                i_start = (i_start == -1)? i : i_start;
+                if (parents[i] == i) local_num_components++;
+            }
+            auto t2 = Clock::now();
+
+            int component_offset;
+            #pragma omp critical
+            {
+                component_offset = k;
+                k += local_num_components;
+            }
+            #pragma omp barrier
+
+            auto t3 = Clock::now();
+
+            #pragma omp for schedule(static)
+            for (int i = 0; i < size; i++) {
+                int parent = parents[i];
+                if (parent < i_start) continue;
+
+                if (parent < i) {
+                    int component_no = result.component_assignment[parent];
+
+                    if (component_no != -1) {
+                        result.component_assignment[i] = component_no;
+                        result.num_component_members[component_no]++;
+                    }
+                } else {
+                    int component_no = component_offset + (local_k++);
+                    result.component_assignment[i] = component_no;
+                    result.num_component_members[component_no] = 1;
+                    result.component_cluster_nos[component_no] = assignment[i];
+                    result.max_component_adj_clusters[component_no] = max_adj_clusters[i];
+                }
+            }
+            auto t4 = Clock::now();
+            #pragma omp critical
+            {
+                prepare_loops.push_back(
+                    (int)std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+                );
+
+                main_loops.push_back(
+                    (int)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())
+                );
             }
         }
-        result.num_components = k;
+        assert(num_components == k);
+        result.num_components = num_components;
+
+        auto outer_t2 = Clock::now();
+
+
+        for (auto dt: prepare_loops) {
+            std::cerr << "PREPARELOOP: " << dt << "\n";
+        }
+        for (auto dt: main_loops) {
+            std::cerr << "MAIN LOOP: " << dt << "\n";
+        }
+
+        std::cerr << "parallel loop : " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us" << std::endl;
+
+        // repair elements that lie across boundaries
+        int num_repaired = 0;
+        auto repair_t1 = Clock::now();
+        for (int i = 0; i < size; i++) {
+            int component_no = result.component_assignment[i];
+            if (component_no == -1) {
+                int parent = parents[i];
+                result.component_assignment[i] = component_no = result.component_assignment[parent];
+                result.num_component_members[component_no]++;
+                num_repaired++;
+            }
+        }
+        auto repair_t2 = Clock::now();
+        std::cerr << "repair(" << num_repaired <<"): " << std::chrono::duration_cast<std::chrono::microseconds>(repair_t2 - repair_t1).count() << " us" << std::endl;
         return result;
     }
 };
@@ -274,7 +378,7 @@ static void fast_enforce_connectivity(BaseContext* context) {
     const Cluster* clusters = context->clusters;
     uint32_t* assignment = context->assignment;
 
-    ConnectedComponentSet cc_set(H * W);
+    ConnectedComponentSet cc_set(H, W);
 
     auto t1 = Clock::now();
 
@@ -396,7 +500,6 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
     std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
-    std::cerr << "find max cluster: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << " us" << std::endl;
     std::cerr << "substitute : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
 }
 
