@@ -213,9 +213,9 @@ public:
         return root;
     }
 
-    inline int merge(int node_i, int node_j) {
-        int root = find_root(node_i);
-        int root_j = find_root(node_j);
+    inline int merge_roots(int root_i, int root_j) {
+        int root = root_i;
+
         if (root_j != root) {
             int new_num_members = num_members[root] + num_members[root_j];
             if (root > root_j) std::swap(root, root_j);
@@ -224,8 +224,15 @@ public:
                 max_adj_clusters[root] = max_adj_clusters[root_j];
             }
         }
-        set_root(root, node_i);
+        return root;
+    }
+
+    inline int merge(int node_i, int node_j) {
+        int root = find_root(node_i);
+        int root_j = find_root(node_j);
+        root = merge_roots(root, root_j);
         set_root(root, node_j);
+        set_root(root, node_i);
         return root;
     }
 
@@ -268,6 +275,8 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     ConnectedComponentSet cc_set(H * W);
 
+    auto t1 = Clock::now();
+
     uint32_t left_cluster_no = assignment[0];
     for (int j = 1; j < W; j++) {
         uint32_t cluster_no = assignment[j];
@@ -283,7 +292,7 @@ static void fast_enforce_connectivity(BaseContext* context) {
         uint32_t left_cluster_no;
         {
             int index = i * W;
-            int up_index = (i - 1) * W;
+            int up_index = index - W;
             uint32_t cluster_no = assignment[index];
             if (assignment[up_index] == cluster_no) {
                 cc_set.merge(up_index, index);
@@ -294,36 +303,35 @@ static void fast_enforce_connectivity(BaseContext* context) {
         }
         for (int j = 1; j < W; j++) {
             int index = i * W + j;
-            int left_index = i * W + (j - 1);
-            int up_index = (i - 1) * W + j;
-
             uint32_t cluster_no = assignment[index];
+            int left_index = index - 1, up_index = index - W;
 
-            bool left_mergable = left_cluster_no == cluster_no;
-            bool up_mergable = assignment[up_index] == cluster_no;
-
-            if (left_mergable && up_mergable) {
-                cc_set.merge(cc_set.merge(left_index, up_index), index);
-            } else if (left_mergable) {
-                cc_set.merge(left_index, index);
-                if (cluster_no != 0xFFFF)
+            if (left_cluster_no == cluster_no) {
+                int left_as_root = cc_set.merge(left_index, index);
+                if (assignment[up_index] == cluster_no) {
+                    cc_set.merge(left_as_root, up_index);
+                } else if (cluster_no != 0xFFFF) {
                     cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
-            } else if (up_mergable) {
-                cc_set.merge(up_index, index);
-                if (cluster_no != 0xFFFF)
-                    cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                }
             } else {
                 if (cluster_no != 0xFFFF) {
                     cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                }
+                if (assignment[up_index] == cluster_no) {
+                    cc_set.merge(up_index, index);
+                } else if (cluster_no != 0xFFFF) {
                     cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                 }
             }
+
             left_cluster_no = cluster_no;
         }
     }
 
     FlatCCSet flat_cc_set = cc_set.flatten(assignment);
-    int thres = S * S / 2;
+    int thres = S * S / 10;
+
+    auto t2 = Clock::now();
 
     std::unordered_map<int, uint32_t> component_cluster_subs;
     for (int i = 0; i < flat_cc_set.num_components; i++) {
@@ -333,16 +341,25 @@ static void fast_enforce_connectivity(BaseContext* context) {
         }
     }
 
+    auto t3 = Clock::now();
+
     for (int i = 0; i < H * W; i++) {
         auto iter = component_cluster_subs.find(flat_cc_set.component_assignment[i]);
         if (iter != component_cluster_subs.end()) {
             assignment[i] = iter->second;
         }
     }
+
+    auto t4 = Clock::now();
+
+    std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " ms" << std::endl;
+    std::cerr << "find max cluster: " << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << " ms" << std::endl;
+    std::cerr << "substitute : " << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << " ms" << std::endl;
 }
 
 static void slic_enforce_connectivity(BaseContext *context) {
-    fast_enforce_connectivity(context);
+    for (int i =0 ; i < 3; i++)
+        fast_enforce_connectivity(context);
 }
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
