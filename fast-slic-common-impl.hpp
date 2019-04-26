@@ -185,12 +185,13 @@ public:
 
 class ConnectedComponentSet {
 public:
-    int H, W, size;
+    int size;
     std::vector<int> parents;
 private:
     std::vector<const Cluster *> max_adj_clusters;
 public:
-    ConnectedComponentSet(int H, int W) : H(H), W(W), size(H * W), parents(size), max_adj_clusters(size, nullptr) {
+    ConnectedComponentSet() : size(0) {};
+    ConnectedComponentSet(int size) : size(size), parents(size), max_adj_clusters(size, nullptr) {
         for (int i = 0; i < size; i++) {
             parents[i] = i;
         }
@@ -213,6 +214,13 @@ private:
         }
     }
 public:
+    inline int add_new_component() {
+        int c = size++;
+        parents.push_back(c);
+        max_adj_clusters.push_back(nullptr);
+        return c;
+    }
+
     inline int find(int node) {
         int root = find_root(node);
         set_root(root, node);
@@ -376,7 +384,79 @@ public:
     }
 };
 
-static void fast_enforce_connectivity(BaseContext* context) {
+static void do_slic_enforce_connectivity(BaseContext *context) {
+    int H = context->H;
+    int W = context->W;
+    int K = context->K;
+    const Cluster* clusters = context->clusters;
+    uint32_t* assignment = context->assignment;
+    if (K <= 0) return;
+
+    std::vector<uint8_t> visited(H * W, 0);
+
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            int base_index = W * i + j;
+            if (assignment[base_index] != 0xFFFF) continue;
+
+            std::vector<int> visited_indices;
+            std::vector<int> stack;
+            std::unordered_set<int> adj_cluster_indices;
+            stack.push_back(base_index);
+            while (!stack.empty()) {
+                int index = stack.back();
+                stack.pop_back();
+
+                if (assignment[index] != 0xFFFF) {
+                    adj_cluster_indices.insert(assignment[index]);
+                    continue;
+                } else if (visited[index]) {
+                    continue;
+                }
+                visited[index] = 1;
+                visited_indices.push_back(index);
+
+                int index_j = index % W;
+                // up
+                if (index > W) {
+                    stack.push_back(index - W);
+                }
+
+                // down
+                if (index + W < H * W) {
+                    stack.push_back(index + W);
+                }
+
+                // left
+                if (index_j > 0) {
+                    stack.push_back(index - 1);
+                }
+
+                // right
+                if (index_j + 1 < W) {
+                    stack.push_back(index + 1);
+                }
+            }
+
+            int target_cluster_index = 0;
+            uint32_t max_num_members = 0;
+            for (auto it = adj_cluster_indices.begin(); it != adj_cluster_indices.end(); ++it) {
+                const Cluster* adj_cluster = &clusters[*it];
+                if (max_num_members < adj_cluster->num_members) {
+                    target_cluster_index = adj_cluster->number;
+                    max_num_members = adj_cluster->num_members;
+                }
+            }
+
+            for (auto it = visited_indices.begin(); it != visited_indices.end(); ++it) {
+                assignment[*it] = target_cluster_index;
+            }
+
+        }
+    }
+}
+
+static void fast_remove_blob(BaseContext* context) {
     int H = context->H;
     int W = context->W;
     int K = context->K;
@@ -386,7 +466,7 @@ static void fast_enforce_connectivity(BaseContext* context) {
     const Cluster* clusters = context->clusters;
     uint32_t* assignment = context->assignment;
 
-    ConnectedComponentSet cc_set(H, W);
+    ConnectedComponentSet cc_set(H * W);
 
     auto t1 = Clock::now();
 
@@ -489,33 +569,35 @@ static void fast_enforce_connectivity(BaseContext* context) {
 
     auto t2 = Clock::now();
 
-    std::vector<uint32_t> component_cluster_subs(flat_cc_set.num_components, 0xFFFF);
-
+    std::vector<bool> component_to_be_removed(flat_cc_set.num_components, false);
     for (int i = 0; i < flat_cc_set.num_components; i++) {
-        if (flat_cc_set.component_cluster_nos[i] == 0xFFFF || flat_cc_set.num_component_members[i] < thres) {
-            uint32_t new_cluster_no = (flat_cc_set.max_component_adj_clusters[i] != nullptr)? flat_cc_set.max_component_adj_clusters[i]->number : 0;
-            component_cluster_subs[i] = new_cluster_no;
+        if (flat_cc_set.num_component_members[i] < thres) {
+            component_to_be_removed[i] = true;
         }
     }
 
     auto t3 = Clock::now();
-
     #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
-        uint32_t sub = component_cluster_subs[flat_cc_set.component_assignment[i]];
-        if (sub != 0xFFFF) assignment[i] = sub;
+        if (component_to_be_removed[flat_cc_set.component_assignment[i]]) {
+            assignment[i] = 0xFFFF;
+        }
     }
 
     auto t4 = Clock::now();
+    do_slic_enforce_connectivity(context);
+    auto t5 = Clock::now();
 
     std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
     std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
-    std::cerr << "substitute : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
+    std::cerr << "thresholding : " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << " us" << std::endl;
+    std::cerr << "set to 0xFFFF : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
+    std::cerr << "fill in 0xFFFF: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << " us" << std::endl;
 }
 
+
 static void slic_enforce_connectivity(BaseContext *context) {
-    for (int i =0 ; i < 3; i++)
-        fast_enforce_connectivity(context);
+    fast_remove_blob(context);
 }
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
