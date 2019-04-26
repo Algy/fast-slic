@@ -16,7 +16,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
-    auto compactness = context->compactness;
     auto clusters = context->clusters;
     auto image = context->image;
     auto assignment = context->assignment;

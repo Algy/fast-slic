@@ -142,8 +142,6 @@ __m256i get_assignment_value_vec(
 }
 
 static void slic_assign_cluster_oriented(Context *context) {
-    auto H = context->H;
-    auto W = context->W;
     auto K = context->K;
     auto clusters = context->clusters;
     auto assignment_memory_width = context->assignment_memory_width;
