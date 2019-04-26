@@ -427,7 +427,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                     uint32_t cluster_no = assignment[index];
                     if (left_cluster_no == 0xFFFF) {
                         if (cluster_no == 0xFFFF) {
-                            cc_set.merge(index - 1, index);
+                            cc_set.add_single(index - 1, index);
                         } else {
                             cc_set.inform_adjacent_cluster(index - 1, &clusters[cluster_no]);
                         }
@@ -445,7 +445,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                 uint32_t up_cluster_no = assignment[up_index];
                 if (up_cluster_no == 0xFFFF){
                     if (cluster_no == 0xFFFF) {
-                        cc_set.merge(up_index, index);
+                        cc_set.add_single(up_index, index);
                     } else {
                         cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                     }
@@ -459,11 +459,11 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                 uint32_t up_cluster_no = assignment[up_index];
 
                 if (cluster_no == 0xFFFF) {
-                    if (left_cluster_no == 0xFFFF) {
-                        cc_set.merge(left_index, index);
+                    if (left_cluster_no == 0xFFFF && cc_set.parents[left_index] != cc_set.parents[index]) {
+                        cc_set.add_single(left_index, index);
                     }
-                    if (up_cluster_no == 0xFFFF) {
-                        cc_set.merge(up_index, index);
+                    if (up_cluster_no == 0xFFFF && cc_set.parents[up_index] != cc_set.parents[index]) {
+                        cc_set.add_single(up_index, index);
                     }
                 } else {
                     if (left_cluster_no == 0xFFFF) {
@@ -490,7 +490,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             uint32_t cluster_no = assignment[index];
             if (assignment[up_index] == 0xFFFF) {
                 if (cluster_no == 0xFFFF) {
-                    cc_set.merge(up_index, index);
+                    cc_set.add_single(up_index, index);
                 } else {
                     cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                 }
