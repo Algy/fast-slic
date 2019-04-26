@@ -196,6 +196,14 @@ public:
             parents[i] = i;
         }
     }
+
+    void clear() {
+        for (int i = 0; i < size; i++) {
+            parents[i] = i;
+        }
+        std::fill(max_adj_clusters.begin(), max_adj_clusters.end(), nullptr);
+    }
+
 private:
     inline int find_root(int node) {
         int parent = parents[node];
@@ -456,20 +464,7 @@ static void do_slic_enforce_connectivity(BaseContext *context) {
     }
 }
 
-static void fast_remove_blob(BaseContext* context) {
-    int H = context->H;
-    int W = context->W;
-    int K = context->K;
-    int S = context->S;
-    if (K <= 0 || H <= 0 || W <= 0) return;
-
-    const Cluster* clusters = context->clusters;
-    uint32_t* assignment = context->assignment;
-
-    ConnectedComponentSet cc_set(H * W);
-
-    auto t1 = Clock::now();
-
+static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint32_t *assignment) {
     std::vector<int> seam_ys;
     #pragma omp parallel
     {
@@ -527,10 +522,11 @@ static void fast_remove_blob(BaseContext* context) {
                     }
                 } else {
                     if (cluster_no != 0xFFFF) {
+                        cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
                         if (assignment[up_index] == cluster_no) {
                             cc_set.add_single(up_index, index);
                         } else {
-                            cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                            cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                         }
                     } else {
                         if (assignment[up_index] == cluster_no) {
@@ -561,8 +557,23 @@ static void fast_remove_blob(BaseContext* context) {
         }
     }
 
-    auto t21 = Clock::now();
+}
 
+static void fast_remove_blob(BaseContext* context) {
+    int H = context->H;
+    int W = context->W;
+    int K = context->K;
+    int S = context->S;
+    if (K <= 0 || H <= 0 || W <= 0) return;
+
+    const Cluster* clusters = context->clusters;
+    uint32_t* assignment = context->assignment;
+
+    ConnectedComponentSet cc_set(H * W);
+
+    auto t1 = Clock::now();
+    build_cc_set(cc_set, clusters, H, W, assignment);
+    auto t21 = Clock::now();
     std::shared_ptr<FlatCCSet> flat_cc_ptr = cc_set.flatten(assignment);
     FlatCCSet &flat_cc_set = *flat_cc_ptr;
     int thres = S * S / 10;
@@ -585,7 +596,25 @@ static void fast_remove_blob(BaseContext* context) {
     }
 
     auto t4 = Clock::now();
-    do_slic_enforce_connectivity(context);
+    cc_set.clear();
+    build_cc_set(cc_set, clusters, H, W, assignment);
+    std::shared_ptr<FlatCCSet> flat_blank_cc_ptr = cc_set.flatten(assignment);
+    FlatCCSet& flat_blank_cc = *flat_blank_cc_ptr;
+
+    std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc.num_components, 0xFFFF);
+    for (int k = 0; k < flat_blank_cc.num_components; k++) {
+        if (flat_blank_cc.component_cluster_nos[k] != 0xFFFF) continue;
+        const Cluster *cluster = flat_blank_cc.max_component_adj_clusters[k];
+        sub_clsuter_nos[k] = (cluster != nullptr)? cluster->number: 0;
+    }
+
+    #pragma omp parallel for
+    for (int i = 0; i < H * W; i++) {
+        uint32_t sub_cluster_no = sub_clsuter_nos[flat_blank_cc.component_assignment[i]];
+        if (sub_cluster_no != 0xFFFF) {
+            assignment[i] = sub_cluster_no;
+        }
+    }
     auto t5 = Clock::now();
 
     std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
