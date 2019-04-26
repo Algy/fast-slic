@@ -270,9 +270,6 @@ public:
         std::atomic<int> component_counter { 0 };
         #pragma omp parallel
         {
-            std::vector<int> local_num_component_members;
-            std::vector<int> local_component_nos;
-
             // rename leading nodes
             #pragma omp for
             for (int i = 0; i < size; i++) {
@@ -289,8 +286,8 @@ public:
                 result->max_component_adj_clusters.resize(result->num_components);
             }
 
+            std::vector<int> local_num_component_members;
             local_num_component_members.resize(result->num_components, 0);
-
             #pragma omp for
             for (int i = 0; i < size; i++) {
                 int parent = parents[i];
@@ -301,22 +298,18 @@ public:
                         component_no = result->component_assignment[parent];
                     }
                     result->component_assignment[i] = component_no;
-                    // race condition can take place here... but who cares?
                     local_num_component_members[component_no]++;
                 } else {
                     int component_no = result->component_assignment[i];
                     result->component_cluster_nos[component_no] = assignment[i];
                     result->max_component_adj_clusters[component_no] = max_adj_clusters[i];
                     local_num_component_members[component_no]++;
-                    local_component_nos.push_back(component_no);
                 }
             }
 
             #pragma omp critical
-            {
-                for (auto component_no : local_component_nos) {
-                    result->num_component_members[component_no] += local_num_component_members[component_no];
-                }
+            for (int i = 0; i < result->num_components; i++) {
+                result->num_component_members[i] += local_num_component_members[i];
             }
         }
         return result;
@@ -526,17 +519,10 @@ static void fast_remove_blob(BaseContext* context) {
 
     auto t2 = Clock::now();
 
-    std::vector<bool> component_to_be_removed(flat_cc->num_components, false);
-    for (int i = 0; i < flat_cc->num_components; i++) {
-        if (flat_cc->num_component_members[i] < thres) {
-            component_to_be_removed[i] = true;
-        }
-    }
-
     auto t3 = Clock::now();
     #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
-        if (component_to_be_removed[flat_cc->component_assignment[i]]) {
+        if (flat_cc->num_component_members[flat_cc->component_assignment[i]] < thres) {
             assignment[i] = 0xFFFF;
         }
     }
@@ -545,6 +531,7 @@ static void fast_remove_blob(BaseContext* context) {
     cc_set.clear_cluster_info();
     merge_cc_set(cc_set, clusters, H, W, assignment);
     std::shared_ptr<FlatCCSet> flat_blank_cc = cc_set.flatten(assignment);
+    auto t5 = Clock::now();
 
     std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc->num_components, 0xFFFF);
 
@@ -565,12 +552,13 @@ static void fast_remove_blob(BaseContext* context) {
             }
         }
     }
-    auto t5 = Clock::now();
+    auto t6 = Clock::now();
 
     std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
     std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
     std::cerr << "set to 0xFFFF : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
-    std::cerr << "fill in 0xFFFF: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << " us" << std::endl;
+    std::cerr << "flatten for blank: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << " us" << std::endl;
+    std::cerr << "substitute: " << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " us" << std::endl;
 }
 
 
