@@ -512,15 +512,15 @@ static void fast_remove_blob(BaseContext* context) {
 
     ConnectedComponentSet cc_set(H * W);
 
-    auto t1 = Clock::now();
+    // auto t1 = Clock::now();
     build_cc_set(cc_set, clusters, H, W, assignment);
-    auto t21 = Clock::now();
+    // auto t21 = Clock::now();
     std::shared_ptr<FlatCCSet> flat_cc = cc_set.flatten(assignment);
     int thres = (int)round((double)(S * S) * (double)context->min_size_factor);
 
-    auto t2 = Clock::now();
+    // auto t2 = Clock::now();
 
-    auto t3 = Clock::now();
+    // auto t3 = Clock::now();
     #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
         if (flat_cc->num_component_members[flat_cc->component_assignment[i]] < thres) {
@@ -528,11 +528,11 @@ static void fast_remove_blob(BaseContext* context) {
         }
     }
 
-    auto t4 = Clock::now();
+    // auto t4 = Clock::now();
     cc_set.clear_cluster_info();
     merge_cc_set(cc_set, clusters, H, W, assignment);
     std::shared_ptr<FlatCCSet> flat_blank_cc = cc_set.flatten(assignment);
-    auto t5 = Clock::now();
+    // auto t5 = Clock::now();
 
     std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc->num_components, 0xFFFF);
 
@@ -553,13 +553,13 @@ static void fast_remove_blob(BaseContext* context) {
             }
         }
     }
-    auto t6 = Clock::now();
+    // auto t6 = Clock::now();
 
-    std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
-    std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
-    std::cerr << "set to 0xFFFF : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
-    std::cerr << "flatten for blank: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << " us" << std::endl;
-    std::cerr << "substitute: " << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " us" << std::endl;
+    // std::cerr << "merge: " << std::chrono::duration_cast<std::chrono::microseconds>(t21 - t1).count() << " us" << std::endl;
+    // std::cerr << "flatten: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t21).count() << " us" << std::endl;
+    // std::cerr << "set to 0xFFFF : " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us" << std::endl;
+    // std::cerr << "flatten for blank: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << " us" << std::endl;
+    // std::cerr << "substitute: " << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " us" << std::endl;
 }
 
 static void do_slic_enforce_connectivity_dfs(BaseContext *context) {

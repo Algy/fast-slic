@@ -358,7 +358,7 @@ extern "C" {
         do_fast_slic_initialize_clusters(H, W, K, image, clusters);
     }
 
-    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
+    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint32_t* __restrict__ assignment) {
         int S = sqrt(H * W / K);
 
         Context context;
@@ -370,6 +370,7 @@ extern "C" {
         context.S = (int16_t)S;
         context.assignment = assignment;
         context.compactness = compactness;
+        context.min_size_factor = min_size_factor;
         context.quantize_level = quantize_level;
         context.clusters = clusters;
 
@@ -522,7 +523,7 @@ int main(int argc, char** argv) {
 
     auto t1 = Clock::now();
     fast_slic_initialize_clusters_avx2(H, W, K, image.get(), clusters);
-    fast_slic_iterate_avx2(H, W, K, compactness, quantize_level, max_iter, image.get(), clusters, assignment.get());
+    fast_slic_iterate_avx2(H, W, K, compactness, 0.1, quantize_level, max_iter, image.get(), clusters, assignment.get());
 
     auto t2 = Clock::now();
     // 6 times faster than skimage.segmentation.slic
