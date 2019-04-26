@@ -58,10 +58,10 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 | -----------------------------------------       | --------------:|
 | skimage.segment.slic                            | 216ms          |
 | cv2.ximgproc.createSuperpixelSLIC.iterate       | 142ms          |
-| fast_slic.Slic(single core build)               | 43ms           |
-| fast_slic.avx2.SlicAvx2(single core build /w avx2 support)      | 17ms           |
-| **fast_slic.Slic(w/ OpenMP support)**           | **16ms**       |
-| **fast_slic.avx2.SlicAvx2(w/ OpenMP, avx2 support)**   | **8ms**       |
+| fast_slic.Slic(single core build)               | 52ms           |
+| fast_slic.avx2.SlicAvx2(single core build /w avx2 support)      | 22ms           |
+| **fast_slic.Slic(w/ OpenMP support)**           | **15ms**       |
+| **fast_slic.avx2.SlicAvx2(w/ OpenMP, avx2 support)**   | **11ms**       |
 
  
 (RGB-to-CIELAB conversion time is not included. Tested with Ryzen 2600x 6C12T 4.0Hz O.C.)
@@ -71,11 +71,12 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
 
  
 ## Experimental
- * To push the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
+ * To push to the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
+
 ## TODO
- - [ ] Remove or merge small blobs
- - [ ] Include simple CRF utilities
- - [ ] Add tests
+ - [x] Remove or merge small blobs
+ - [x] Include simple CRF utilities
+ - [x] Add tests
  - [x] Windows build
  - [x] More scalable parallel loop in cluster assignment. I suspect there is false sharing problem in the loop.
  - [x] would be great if I can optimize loop more. SIMD?
