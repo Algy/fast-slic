@@ -75,6 +75,7 @@ public:
     int16_t S;
     const char* algorithm;
     float compactness;
+    float min_size_factor = 0.1;
     uint8_t quantize_level;
     Cluster* __restrict__ clusters;
     const uint8_t* __restrict__ image = nullptr;
@@ -427,7 +428,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                     uint32_t cluster_no = assignment[index];
                     if (left_cluster_no == 0xFFFF) {
                         if (cluster_no == 0xFFFF) {
-                            cc_set.add_single(index - 1, index);
+                            cc_set.merge(index - 1, index);
                         } else {
                             cc_set.inform_adjacent_cluster(index - 1, &clusters[cluster_no]);
                         }
@@ -445,7 +446,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                 uint32_t up_cluster_no = assignment[up_index];
                 if (up_cluster_no == 0xFFFF){
                     if (cluster_no == 0xFFFF) {
-                        cc_set.add_single(up_index, index);
+                        cc_set.merge(up_index, index);
                     } else {
                         cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                     }
@@ -460,10 +461,10 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
 
                 if (cluster_no == 0xFFFF) {
                     if (left_cluster_no == 0xFFFF && cc_set.parents[left_index] != cc_set.parents[index]) {
-                        cc_set.add_single(left_index, index);
+                        cc_set.merge(left_index, index);
                     }
                     if (up_cluster_no == 0xFFFF && cc_set.parents[up_index] != cc_set.parents[index]) {
-                        cc_set.add_single(up_index, index);
+                        cc_set.merge(up_index, index);
                     }
                 } else {
                     if (left_cluster_no == 0xFFFF) {
@@ -490,7 +491,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             uint32_t cluster_no = assignment[index];
             if (assignment[up_index] == 0xFFFF) {
                 if (cluster_no == 0xFFFF) {
-                    cc_set.add_single(up_index, index);
+                    cc_set.merge(up_index, index);
                 } else {
                     cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
                 }
@@ -515,7 +516,7 @@ static void fast_remove_blob(BaseContext* context) {
     build_cc_set(cc_set, clusters, H, W, assignment);
     auto t21 = Clock::now();
     std::shared_ptr<FlatCCSet> flat_cc = cc_set.flatten(assignment);
-    int thres = S * S / 10;
+    int thres = (int)round((double)(S * S) * (double)context->min_size_factor);
 
     auto t2 = Clock::now();
 
@@ -561,9 +562,87 @@ static void fast_remove_blob(BaseContext* context) {
     std::cerr << "substitute: " << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " us" << std::endl;
 }
 
+static void do_slic_enforce_connectivity_dfs(BaseContext *context) {
+    int H = context->H;
+    int W = context->W;
+    int K = context->K;
+    const Cluster* clusters = context->clusters;
+    uint32_t* assignment = context->assignment;
+    if (K <= 0) return;
+
+    uint8_t *visited = new uint8_t[H * W];
+    std::fill_n(visited, H * W, 0);
+
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            int base_index = W * i + j;
+            if (assignment[base_index] != 0xFFFF) continue;
+
+            std::vector<int> visited_indices;
+            std::vector<int> stack;
+            std::unordered_set<int> adj_cluster_indices;
+            stack.push_back(base_index);
+            while (!stack.empty()) {
+                int index = stack.back();
+                stack.pop_back();
+
+                if (assignment[index] != 0xFFFF) {
+                    adj_cluster_indices.insert(assignment[index]);
+                    continue;
+                } else if (visited[index]) {
+                    continue;
+                }
+                visited[index] = 1;
+                visited_indices.push_back(index);
+
+                int index_j = index % W;
+                // up
+                if (index > W) {
+                    stack.push_back(index - W);
+                }
+
+                // down
+                if (index + W < H * W) {
+                    stack.push_back(index + W);
+                }
+
+                // left
+                if (index_j > 0) {
+                    stack.push_back(index - 1);
+                }
+
+                // right
+                if (index_j + 1 < W) {
+                    stack.push_back(index + 1);
+                }
+            }
+
+            int target_cluster_index = 0;
+            uint32_t max_num_members = 0;
+            for (auto it = adj_cluster_indices.begin(); it != adj_cluster_indices.end(); ++it) {
+                const Cluster* adj_cluster = &clusters[*it];
+                if (max_num_members < adj_cluster->num_members) {
+                    target_cluster_index = adj_cluster->number;
+                    max_num_members = adj_cluster->num_members;
+                }
+            }
+
+            for (auto it = visited_indices.begin(); it != visited_indices.end(); ++it) {
+                assignment[*it] = target_cluster_index;
+            }
+
+        }
+    }
+    delete [] visited;
+}
+
 
 static void slic_enforce_connectivity(BaseContext *context) {
-    fast_remove_blob(context);
+    if (context->min_size_factor <= 0) {
+        do_slic_enforce_connectivity_dfs(context);
+    } else {
+        fast_remove_blob(context);
+    }
 }
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
@@ -639,4 +718,6 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
         clusters[k].num_members = 0;
     }
 }
+
+
 
