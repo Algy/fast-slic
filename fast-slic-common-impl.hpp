@@ -197,10 +197,7 @@ public:
         }
     }
 
-    void clear() {
-        for (int i = 0; i < size; i++) {
-            parents[i] = i;
-        }
+    void clear_cluster_info() {
         std::fill(max_adj_clusters.begin(), max_adj_clusters.end(), nullptr);
     }
 
@@ -346,7 +343,6 @@ public:
 
             auto t2 = Clock::now();
 
-            
             #pragma omp for
             for (int real_index = 0; real_index < (int)component_nos.size(); real_index++) {
                 int component_no = component_nos[real_index];
@@ -363,6 +359,7 @@ public:
             }
 
             auto t3 = Clock::now();
+            /*
             
             #pragma omp critical
             {
@@ -374,6 +371,7 @@ public:
                 );
 
             }
+            */
         }
 
         delete [] component_to_real_index;
@@ -386,8 +384,8 @@ public:
            // std::cerr << "POST " << post << " us" << std::endl;
         }
 
-        std::cerr << "OUTER " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us\n";
-        std::cerr << "OUTER INIT " << std::chrono::duration_cast<std::chrono::microseconds>(outer_init_t2 - outer_init_t1).count() << " us\n";
+        // std::cerr << "OUTER " << std::chrono::duration_cast<std::chrono::microseconds>(outer_t2 - outer_t1).count() << " us\n";
+        // std::cerr << "OUTER INIT " << std::chrono::duration_cast<std::chrono::microseconds>(outer_init_t2 - outer_init_t1).count() << " us\n";
         return result_ptr;
     }
 };
@@ -556,7 +554,95 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             }
         }
     }
+}
 
+static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint32_t *assignment) {
+    std::vector<int> seam_ys;
+    #pragma omp parallel
+    {
+        bool is_first = true;
+        int seam = 0;
+        #pragma omp for
+        for (int i = 0; i < H; i++) {
+            if (is_first) {
+                is_first = false;
+                seam = i;
+                uint32_t left_cluster_no = assignment[i * W];
+                for (int j = 1; j < W; j++) {
+                    int index = i * W + j;
+                    uint32_t cluster_no = assignment[index];
+                    if (left_cluster_no == 0xFFFF) {
+                        if (cluster_no == 0xFFFF) {
+                            cc_set.merge(index - 1, index);
+                        } else {
+                            cc_set.inform_adjacent_cluster(index - 1, &clusters[cluster_no]);
+                        }
+                    }
+                    left_cluster_no = cluster_no;
+                }
+                continue;
+            }
+
+            uint32_t left_cluster_no;
+            {
+                int index = i * W;
+                int up_index = index - W;
+                uint32_t cluster_no = assignment[index];
+                uint32_t up_cluster_no = assignment[up_index];
+                if (up_cluster_no == 0xFFFF){
+                    if (cluster_no == 0xFFFF) {
+                        cc_set.merge(up_index, index);
+                    } else {
+                        cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                    }
+                }
+                left_cluster_no = cluster_no;
+            }
+            for (int j = 1; j < W; j++) {
+                int index = i * W + j;
+                uint32_t cluster_no = assignment[index];
+                int left_index = index - 1, up_index = index - W;
+                uint32_t up_cluster_no = assignment[up_index];
+
+                if (cluster_no == 0xFFFF) {
+                    if (left_cluster_no == 0xFFFF) {
+                        cc_set.merge(left_index, index);
+                    }
+                    if (up_cluster_no == 0xFFFF) {
+                        cc_set.merge(up_index, index);
+                    }
+                } else {
+                    if (left_cluster_no == 0xFFFF) {
+                        cc_set.inform_adjacent_cluster(left_index, &clusters[cluster_no]);
+                    }
+                    if (up_cluster_no == 0xFFFF) {
+                        cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                    }
+                }
+
+                left_cluster_no = cluster_no;
+            }
+        }
+
+        #pragma omp critical
+        seam_ys.push_back(seam);
+    }
+
+    for (int i : seam_ys) {
+        if (i <= 0) continue;
+        for (int j = 0; j < W; j++) {
+            int index = i * W + j;
+            int up_index = index - W;
+            uint32_t cluster_no = assignment[index];
+            if (assignment[up_index] == 0xFFFF) {
+                if (cluster_no == 0xFFFF) {
+                    cc_set.merge(up_index, index);
+                } else {
+                    cc_set.inform_adjacent_cluster(up_index, &clusters[cluster_no]);
+                }
+            }
+        }
+    }
 }
 
 static void fast_remove_blob(BaseContext* context) {
@@ -574,15 +660,14 @@ static void fast_remove_blob(BaseContext* context) {
     auto t1 = Clock::now();
     build_cc_set(cc_set, clusters, H, W, assignment);
     auto t21 = Clock::now();
-    std::shared_ptr<FlatCCSet> flat_cc_ptr = cc_set.flatten(assignment);
-    FlatCCSet &flat_cc_set = *flat_cc_ptr;
+    std::shared_ptr<FlatCCSet> flat_cc = cc_set.flatten(assignment);
     int thres = S * S / 10;
 
     auto t2 = Clock::now();
 
-    std::vector<bool> component_to_be_removed(flat_cc_set.num_components, false);
-    for (int i = 0; i < flat_cc_set.num_components; i++) {
-        if (flat_cc_set.num_component_members[i] < thres) {
+    std::vector<bool> component_to_be_removed(flat_cc->num_components, false);
+    for (int i = 0; i < flat_cc->num_components; i++) {
+        if (flat_cc->num_component_members[i] < thres) {
             component_to_be_removed[i] = true;
         }
     }
@@ -590,27 +675,26 @@ static void fast_remove_blob(BaseContext* context) {
     auto t3 = Clock::now();
     #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
-        if (component_to_be_removed[flat_cc_set.component_assignment[i]]) {
+        if (component_to_be_removed[flat_cc->component_assignment[i]]) {
             assignment[i] = 0xFFFF;
         }
     }
 
     auto t4 = Clock::now();
-    cc_set.clear();
-    build_cc_set(cc_set, clusters, H, W, assignment);
-    std::shared_ptr<FlatCCSet> flat_blank_cc_ptr = cc_set.flatten(assignment);
-    FlatCCSet& flat_blank_cc = *flat_blank_cc_ptr;
+    cc_set.clear_cluster_info();
+    merge_cc_set(cc_set, clusters, H, W, assignment);
+    std::shared_ptr<FlatCCSet> flat_blank_cc = cc_set.flatten(assignment);
 
-    std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc.num_components, 0xFFFF);
-    for (int k = 0; k < flat_blank_cc.num_components; k++) {
-        if (flat_blank_cc.component_cluster_nos[k] != 0xFFFF) continue;
-        const Cluster *cluster = flat_blank_cc.max_component_adj_clusters[k];
+    std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc->num_components, 0xFFFF);
+    for (int k = 0; k < flat_blank_cc->num_components; k++) {
+        if (flat_blank_cc->component_cluster_nos[k] != 0xFFFF) continue;
+        const Cluster *cluster = flat_blank_cc->max_component_adj_clusters[k];
         sub_clsuter_nos[k] = (cluster != nullptr)? cluster->number: 0;
     }
 
     #pragma omp parallel for
     for (int i = 0; i < H * W; i++) {
-        uint32_t sub_cluster_no = sub_clsuter_nos[flat_blank_cc.component_assignment[i]];
+        uint32_t sub_cluster_no = sub_clsuter_nos[flat_blank_cc->component_assignment[i]];
         if (sub_cluster_no != 0xFFFF) {
             assignment[i] = sub_cluster_no;
         }
