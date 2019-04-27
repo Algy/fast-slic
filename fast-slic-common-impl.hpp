@@ -646,17 +646,28 @@ static void slic_enforce_connectivity(BaseContext *context) {
 }
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
-    int *gradients = new int[H * W];
+    if (H <= 0 || W <= 0 || K <= 0) return;
+    std::vector<int> gradients(H * W, 1 << 21);
 
-    int num_sep = my_max(1, (int)sqrt((double)K));
+    int n_y = (int)sqrt((double)K);
 
-    int h = H / num_sep;
-    int w = W / num_sep;
+    std::vector<int> n_xs(n_y, K / n_y);
 
+    int remainder = K % n_y;
+    int row = 0;
+    while (remainder-- > 0) {
+        n_xs[row]++;
+        row += 2;
+        if (row >= n_y) {
+            row = 1 % n_y;
+        }
+    }
+
+    int h = ceil_int(H, n_y);
     // compute gradients
-    std::fill_n(gradients, H * W, 1 << 21);
-    for (int i = 1; i < H; i += h) {
-        for (int j = 1; j < W; j += w) {
+    for (int i = 1; i < H - 1; i += h) {
+        int w = ceil_int(W, n_xs[my_min<int>((i - 1) / h, n_y - 1)]);
+        for (int j = 1; j < W - 1; j += w) {
             int base_index = i * W + j;
             int img_base_index = 3 * base_index;
             int dx = 
@@ -673,8 +684,11 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
 
     int acc_k = 0;
     for (int i = 0; i < H; i += h) {
+        int w = ceil_int(W, n_xs[my_min<int>(i / h, n_y - 1)]);
         for (int j = 0; j < W; j += w) {
-            if (acc_k >= K) break;
+            if (acc_k >= K) {
+                break;
+            }
 
             int eh = my_min<int>(i + h, H - 1), ew = my_min<int>(j + w, W - 1);
             int center_y = i + h / 2, center_x = j + w / 2;
@@ -704,9 +718,6 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
         clusters[acc_k].x = W / 2;
         acc_k++;
     }
-
-    delete [] gradients;
-
 
     for (int k = 0; k < K; k++) {
         int base_index = W * clusters[k].y + clusters[k].x;
