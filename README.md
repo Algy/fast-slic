@@ -26,7 +26,7 @@ from PIL import Image
 with Image.open("fish.jpg") as f:
    image = np.array(f)
 # import cv2; image = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)   # You can convert the image to CIELAB space if you need.
-slic = Slic(num_components=1600)
+slic = Slic(num_components=1600, compactness=10)
 assignment = slic.iterate(image) # Cluster Map
 print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
@@ -44,7 +44,7 @@ from PIL import Image
 with Image.open("fish.jpg") as f:
    image = np.array(f)
 # import cv2; image = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)   # You can convert the image to CIELAB space if you need.
-slic = SlicAvx2(num_components=1600)
+slic = SlicAvx2(num_components=1600, compactness=10)
 assignment = slic.iterate(image) # Cluster Map
 print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
