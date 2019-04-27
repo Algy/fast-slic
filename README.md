@@ -6,8 +6,8 @@ It started as a part of my hobby project that demanded true "real time" capabili
 ## Demo
 <table>
    <tr>
-      <td><img alt="demo_clownfish" src="https://user-images.githubusercontent.com/2352985/55978839-c5504780-5ccb-11e9-9820-d8ddf950f230.png"></td>
-      <td><img alt="demo_tiger" src="https://user-images.githubusercontent.com/2352985/55949421-86030600-5c8d-11e9-9693-b05f00f1c792.jpg"></td>
+      <td><img alt="demo_clownfish" src="https://user-images.githubusercontent.com/2352985/56845088-8a1e5d00-68f6-11e9-9950-cab56cf32e80.jpg"></td>
+      <td><img alt="demo_tiger" src="https://user-images.githubusercontent.com/2352985/56845090-8e4a7a80-68f6-11e9-9a51-b1da31d5ef77.jpg"></td>
    </tr>
 </table>
 
