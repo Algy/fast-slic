@@ -71,9 +71,10 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
  * Windows build is quite slower compared to those of linux and mac. Maybe it is due to openmp overhead?
 
  
-## Experimental
+## Tips
+ * It automatically removes small isolated area of pixels at cost of significant (but not huge) overhead. You can skip denoising process by setting `min_size_factor` to 0. (e.g. `Slic(num_components=1600, compactness=10, min_size_factor=0)`). The setting makes it 20-40% faster. 
  * To push to the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
-
+ 
 ## TODO
  - [x] Remove or merge small blobs
  - [x] Include simple CRF utilities
