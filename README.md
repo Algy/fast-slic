@@ -2,12 +2,13 @@
 
 Fast-slic is a SLIC-variant algorithm implementation that aims for significantly low runtime with cpu. It runs 7-20 times faster than existing SLIC implementations. Fast-slic can process 1280x720 image stream at 60fps.
 
-It started as a part of my hobby project that demanded true "real time" capability in video stream processing. Among pipelines of it was a postprocessing pipeline smoothing the result of image with SLIC superpixels and CRF. Unfortunately, there were no satisfying library for real-time(>30fps) goal. [gSLICr](https://github.com/carlren/gSLICr) was the most promising candidate, but I couldn't make use of it due to limited hardware and inflexible license of CUDA. Therefore, I made the lightweight variant of SLIC, sacrificing a little of accuracy, to gain super-fast implementation.  
+It started as a part of my hobby project that demanded true "real time" capability in video stream processing. Among pipelines of it was a postprocessing pipeline smoothing the result of image with SLIC superpixels and CRF. Unfortunately, there were no satisfying library for real-time(>30fps) goal. [gSLICr](https://github.com/carlren/gSLICr) was the most promising candidate, but I couldn't make use of it due to limited hardware and inflexible license of CUDA. Therefore, I made the blazingly fast variant of SLIC using only CPU.
+
 ## Demo
 <table>
    <tr>
-      <td><img alt="demo_clownfish" src="https://user-images.githubusercontent.com/2352985/55978839-c5504780-5ccb-11e9-9820-d8ddf950f230.png"></td>
-      <td><img alt="demo_tiger" src="https://user-images.githubusercontent.com/2352985/55949421-86030600-5c8d-11e9-9693-b05f00f1c792.jpg"></td>
+      <td><img alt="demo_clownfish" src="https://user-images.githubusercontent.com/2352985/56845088-8a1e5d00-68f6-11e9-9950-cab56cf32e80.jpg"></td>
+      <td><img alt="demo_tiger" src="https://user-images.githubusercontent.com/2352985/56845090-8e4a7a80-68f6-11e9-9a51-b1da31d5ef77.jpg"></td>
    </tr>
 </table>
 
@@ -26,7 +27,7 @@ from PIL import Image
 with Image.open("fish.jpg") as f:
    image = np.array(f)
 # import cv2; image = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)   # You can convert the image to CIELAB space if you need.
-slic = Slic(num_components=1600)
+slic = Slic(num_components=1600, compactness=10)
 assignment = slic.iterate(image) # Cluster Map
 print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
@@ -44,7 +45,7 @@ from PIL import Image
 with Image.open("fish.jpg") as f:
    image = np.array(f)
 # import cv2; image = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)   # You can convert the image to CIELAB space if you need.
-slic = SlicAvx2(num_components=1600)
+slic = SlicAvx2(num_components=1600, compactness=10)
 assignment = slic.iterate(image) # Cluster Map
 print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
@@ -70,9 +71,10 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
  * Windows build is quite slower compared to those of linux and mac. Maybe it is due to openmp overhead?
 
  
-## Experimental
+## Tips
+ * It automatically removes small isolated area of pixels at cost of significant (but not huge) overhead. You can skip denoising process by setting `min_size_factor` to 0. (e.g. `Slic(num_components=1600, compactness=10, min_size_factor=0)`). The setting makes it 20-40% faster. 
  * To push to the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
-
+ 
 ## TODO
  - [x] Remove or merge small blobs
  - [x] Include simple CRF utilities
