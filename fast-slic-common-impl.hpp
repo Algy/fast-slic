@@ -50,6 +50,11 @@ static inline T my_min(T x, T y) {
     return (x < y) ? x : y;
 }
 
+template <typename T>
+static inline T clamp(T value, T lo, T hi) {
+    return (value < lo) ? lo : ((value > hi)? hi : value);
+}
+
 
 template <typename T>
 static T fast_abs(T n)
@@ -705,8 +710,8 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
                 }
             }
 
-            clusters[acc_k].y = center_y;
-            clusters[acc_k].x = center_x;
+            clusters[acc_k].y = clamp(center_y, 0, H - 1);
+            clusters[acc_k].x = clamp(center_x, 0, W - 1);
 
 
             acc_k++;
