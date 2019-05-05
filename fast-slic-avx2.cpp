@@ -142,6 +142,8 @@ __m256i get_assignment_value_vec(
 }
 
 static void slic_assign_cluster_oriented(Context *context) {
+    auto H = context->H;
+    auto W = context->W;
     auto K = context->K;
     auto clusters = context->clusters;
     auto assignment_memory_width = context->assignment_memory_width;
@@ -164,7 +166,9 @@ static void slic_assign_cluster_oriented(Context *context) {
 
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
-    // auto t0 = Clock::now();
+#   ifdef FAST_SLIC_TIMER
+    auto t0 = Clock::now();
+#   endif
 
     std::vector<ZOrderTuple> cluster_sorted_tuples;
     {
@@ -177,7 +181,9 @@ static void slic_assign_cluster_oriented(Context *context) {
         std::sort(cluster_sorted_tuples.begin(), cluster_sorted_tuples.end());
     }
 
-    // auto t1 = Clock::now();
+#   ifdef FAST_SLIC_TIMER
+    auto t1 = Clock::now();
+#   endif
     __m256i color_swap_mask =  _mm256_set_epi32(
         7, 7, 7, 7,
         6, 4, 2, 0
@@ -260,9 +266,11 @@ static void slic_assign_cluster_oriented(Context *context) {
             }
         }
     }
-    // auto t2 = Clock::now();
-    // std::cerr << "Sort: " << std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count() << "us \n";
-    // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#   ifdef FAST_SLIC_TIMER
+    auto t2 = Clock::now();
+    std::cerr << "Sort: " << std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count() << "us \n";
+    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#   endif
 }
 
 static void slic_assign(Context *context) {
@@ -271,7 +279,8 @@ static void slic_assign(Context *context) {
     }
 }
 
-static void slic_update_clusters(Context *context, bool reset_assignment) {
+template <bool reset_assignment>
+static void slic_update_clusters(Context *context) {
     auto H = context->H;
     auto W = context->W;
     auto K = context->K;
@@ -304,16 +313,15 @@ static void slic_update_clusters(Context *context, bool reset_assignment) {
                 int img_base_index = quad_image_memory_width * i + 4 * j;
                 int assignment_index = assignment_memory_width * i + j;
 
-                cluster_no_t cluster_no = (cluster_no_t)(aligned_assignment[assignment_index] & 0x0000FFFF);
+                uint32_t cluster_no = aligned_assignment[assignment_index] & 0x0000FFFF;
                 if (reset_assignment) aligned_assignment[assignment_index] = 0xFFFFFFFF;
-                if (cluster_no != 0xFFFF && cluster_no < K) {
-                    local_num_cluster_members[cluster_no]++;
-                    local_acc_vec[5 * cluster_no + 0] += i;
-                    local_acc_vec[5 * cluster_no + 1] += j;
-                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
-                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
-                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
-                }
+                if (cluster_no == 0xFFFF) continue;
+                local_num_cluster_members[cluster_no]++;
+                local_acc_vec[5 * cluster_no + 0] += i;
+                local_acc_vec[5 * cluster_no + 1] += j;
+                local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
+                local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
+                local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
             }
         }
 
@@ -393,7 +401,9 @@ extern "C" {
 
         context.prepare_spatial();
         {
-            // auto t1 = Clock::now();
+#           ifdef FAST_SLIC_TIMER
+            auto t1 = Clock::now();
+#           endif
             __m256i constant = _mm256_set1_epi32(0xFFFFFFFF);
             #pragma omp parallel for
             for (int i = 0; i < H; i++) {
@@ -403,39 +413,57 @@ extern "C" {
                     _mm256_storeu_si256((__m256i *)&context.aligned_assignment[assignment_memory_width * i + j], constant);
                 }
             }
-            // auto t2 = Clock::now();
-            // std::cerr << "Assignment Initialization " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#           ifdef FAST_SLIC_TIMER
+            auto t2 = Clock::now();
+            std::cerr << "Assignment Initialization " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#           endif
         }
 
 
         for (int i = 0; i < max_iter; i++) {
-            // auto t1 = Clock::now();
+#           ifdef FAST_SLIC_TIMER
+            auto t1 = Clock::now();
+#           endif
             slic_assign(&context);
-            // auto t2 = Clock::now();
-            slic_update_clusters(&context, i + 1 < max_iter);
-            // auto t3 = Clock::now();
-            // std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+#           ifdef FAST_SLIC_TIMER
+            auto t2 = Clock::now();
+#           endif
+            if (i + 1 < max_iter) 
+                slic_update_clusters<true>(&context);
+            else
+                slic_update_clusters<false>(&context);
+#           ifdef FAST_SLIC_TIMER
+            auto t3 = Clock::now();
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+#           endif
         }
 
 
 
 
         {
-            // auto t1 = Clock::now();
+#           ifdef FAST_SLIC_TIMER
+            auto t1 = Clock::now();
+#           endif
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
                     assignment[W * i + j] = context.aligned_assignment[context.assignment_memory_width * i + j] & 0x0000FFFF;
                 }
             }
-            // auto t2 = Clock::now();
-            // std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#           ifdef FAST_SLIC_TIMER
+            auto t2 = Clock::now();
+            std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#           endif
         }
-        // auto t1 = Clock::now();
+#       ifdef FAST_SLIC_TIMER
+        auto t1 = Clock::now();
+#       endif
         slic_enforce_connectivity(&context);
-        // auto t2 = Clock::now();
-
-        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#       ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#       endif
     }
     int fast_slic_supports_avx2() { return 1; }
 }
