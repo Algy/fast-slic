@@ -397,7 +397,14 @@ static void slic_update_clusters(Context *context) {
 
 extern "C" {
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
+#       ifdef FAST_SLIC_TIMER
+        auto t1 = Clock::now();
+#       endif
         do_fast_slic_initialize_clusters(H, W, K, image, clusters);
+#       ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        std::cerr << "Cluster Initialization: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#       endif
     }
 
     void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint16_t* __restrict__ assignment) {
@@ -478,11 +485,11 @@ extern "C" {
 
 
 
-
         {
 #           ifdef FAST_SLIC_TIMER
             auto t1 = Clock::now();
 #           endif
+
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
                     assignment[W * i + j] = context.aligned_assignment[context.assignment_memory_width * i + j];
