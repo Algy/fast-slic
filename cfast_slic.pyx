@@ -5,7 +5,7 @@ cimport numpy as np
 
 import numpy as np
 
-from libc.stdint cimport uint8_t, int32_t, uint32_t, uint16_t
+from libc.stdint cimport uint8_t, int32_t, uint32_t, uint16_t, int16_t
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy, memset
 
@@ -130,7 +130,7 @@ cdef class BaseSlicModel:
         cdef int H = image.shape[0]
         cdef int W = image.shape[1]
         cdef int K = self.num_components
-        cdef np.ndarray[np.uint32_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint32)
+        cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
         cdef cfast_slic.Cluster* c_clusters = self._c_clusters
 
         if self._get_name() == 'standard':
@@ -144,7 +144,7 @@ cdef class BaseSlicModel:
                 max_iter,
                 &image[0, 0, 0],
                 c_clusters,
-                <uint32_t *>&assignments[0, 0]
+                <uint16_t *>&assignments[0, 0]
             )
         elif self._get_name() == 'avx2':
             cfast_slic.fast_slic_iterate_avx2(
@@ -157,15 +157,15 @@ cdef class BaseSlicModel:
                 max_iter,
                 &image[0, 0, 0],
                 c_clusters,
-                <uint32_t *>&assignments[0, 0]
+                <uint16_t *>&assignments[0, 0]
             )
         else:
             raise RuntimeError("Not reachable")
-        result = assignments.astype(np.int32)
+        result = assignments.astype(np.int16)
         result[result == 0xFFFF] = -1
         return result
 
-    cpdef get_connectivity(self, const int32_t[:,::1] assignments):
+    cpdef get_connectivity(self, const int16_t[:,::1] assignments):
         cdef int H = assignments.shape[0]
         cdef int W = assignments.shape[1]
         cdef int K = self.num_components
@@ -174,10 +174,10 @@ cdef class BaseSlicModel:
 
         cdef Connectivity* conn;
         with nogil:
-            conn = cfast_slic.fast_slic_get_connectivity(H, W, K, <const uint32_t *>&assignments[0, 0])
+            conn = cfast_slic.fast_slic_get_connectivity(H, W, K, <const uint16_t *>&assignments[0, 0])
         return NodeConnectivity.create(conn)
 
-    cpdef get_knn_connectivity(self, const int32_t[:,::1] assignments, size_t num_neighbors):
+    cpdef get_knn_connectivity(self, const int16_t[:,::1] assignments, size_t num_neighbors):
         cdef int H = assignments.shape[0]
         cdef int W = assignments.shape[1]
         cdef int K = self.num_components
@@ -186,7 +186,7 @@ cdef class BaseSlicModel:
             conn = cfast_slic.fast_slic_knn_connectivity(H, W, K, c_clusters, num_neighbors)
         return NodeConnectivity.create(conn)
 
-    cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int32_t[:, ::1] assignments):
+    cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int16_t[:, ::1] assignments):
         cdef int H = assignments.shape[0]
         cdef int W = assignments.shape[1]
         cdef int K = self.num_components
@@ -202,13 +202,13 @@ cdef class BaseSlicModel:
                 W,
                 K,
                 _c_clusters,
-                <uint32_t *>&assignments[0, 0],
+                <uint16_t *>&assignments[0, 0],
                 &mask[0, 0],
                 <uint8_t *>&densities[0],
             )
         return densities
 
-    cpdef broadcast_density_to_mask(self, const uint8_t[::1] densities, const int32_t[:, ::1] assignments):
+    cpdef broadcast_density_to_mask(self, const uint8_t[::1] densities, const int16_t[:, ::1] assignments):
         cdef int H = assignments.shape[0]
         cdef int W = assignments.shape[1]
         cdef int K = self.num_components
@@ -222,7 +222,7 @@ cdef class BaseSlicModel:
                 W,
                 K,
                 _c_clusters,
-                <uint32_t *>&assignments[0, 0],
+                <uint16_t *>&assignments[0, 0],
                 &densities[0],
                 <uint8_t *>&mask[0, 0],
             )

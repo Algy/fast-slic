@@ -59,7 +59,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         int16_t cluster_r = cluster->r;
         int16_t cluster_g = cluster->g;
         int16_t cluster_b = cluster->b;
-        uint32_t cluster_no =  cluster->number;
+        uint16_t cluster_no =  cluster->number;
         const int16_t y_lo = my_max(0, cluster_y - S), y_hi = my_min(H, cluster_y + S + 1);
         const int16_t x_lo = my_max(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
 
@@ -190,7 +190,7 @@ extern "C" {
         do_fast_slic_initialize_clusters(H, W, K, image, clusters);
     }
 
-    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint32_t* assignment) {
+    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {
 
         Context context;
         context.image = image;
@@ -265,7 +265,7 @@ extern "C" {
         return ((x * 0x1f1f1f1f) ^ y) +  ((y * 0x1f1f1f1f) ^ x);
     }
 
-    Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint32_t *assignment) {
+    Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint16_t *assignment) {
         const static int max_conn = 12;
         Connectivity* conn = new Connectivity();
         conn->num_nodes = K;
@@ -390,13 +390,13 @@ extern "C" {
         delete conn;
     }
 
-    void fast_slic_get_mask_density(int H, int W, int K, const Cluster *clusters, const uint32_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) {
+    void fast_slic_get_mask_density(int H, int W, int K, const Cluster *clusters, const uint16_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) {
         int *sum = new int[K];
         std::fill_n(sum, K, 0);
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
-                uint32_t cluster_no = assignment[W * i + j];
-                if (cluster_no < (uint32_t)K)
+                uint16_t cluster_no = assignment[W * i + j];
+                if (cluster_no < (uint16_t)K)
                     sum[cluster_no] += mask[W * i + j];
             }
         }
@@ -407,11 +407,11 @@ extern "C" {
         delete [] sum;
     }
 
-    void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint32_t* assignment, const uint8_t *cluster_densities, uint8_t *result) {
+    void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint16_t* assignment, const uint8_t *cluster_densities, uint8_t *result) {
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
-                uint32_t cluster_no = assignment[W * i + j];
-                if (cluster_no < (uint32_t)K)
+                uint16_t cluster_no = assignment[W * i + j];
+                if (cluster_no < (uint16_t)K)
                     result[W * i + j] = cluster_densities[cluster_no];
                 else
                     result[W * i + j] = 0;
@@ -454,7 +454,7 @@ int main(int argc, char** argv) {
     int W = 640;
     Cluster clusters[K];
     std::unique_ptr<uint8_t[]> image { new uint8_t[H * W * 3] };
-    std::unique_ptr<uint32_t[]> assignment { new uint32_t[H * W] };
+    std::unique_ptr<uint16_t[]> assignment { new uint16_t[H * W] };
 
     std::ifstream inputf("/tmp/a.txt");
     for (int i = 0; i < H; i++) {

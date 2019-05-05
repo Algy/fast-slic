@@ -86,7 +86,7 @@ public:
     const uint8_t* __restrict__ image = nullptr;
     uint16_t* __restrict__ spatial_dist_patch = nullptr;
     uint16_t* __restrict__ spatial_normalize_cache = nullptr;
-    uint32_t* __restrict__ assignment = nullptr;
+    uint16_t* __restrict__ assignment = nullptr;
 
 public:
     virtual ~BaseContext() {
@@ -179,7 +179,7 @@ public:
 
     int num_components;
     std::vector<int> num_component_members;
-    std::vector<uint32_t> component_cluster_nos;
+    std::vector<uint16_t> component_cluster_nos;
     std::vector<const Cluster *>max_component_adj_clusters;
 public:
     FlatCCSet(int image_size) : component_assignment(new int[image_size]) {
@@ -270,7 +270,7 @@ public:
         }
     }
 
-    inline std::shared_ptr<FlatCCSet> flatten(const uint32_t *assignment) {
+    inline std::shared_ptr<FlatCCSet> flatten(const uint16_t *assignment) {
         int size = (int)parents.size();
         std::shared_ptr<FlatCCSet> result { new FlatCCSet(size) };
         std::atomic<int> component_counter { 0 };
@@ -322,7 +322,7 @@ public:
     }
 };
 
-static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint32_t *assignment) {
+static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint16_t *assignment) {
     std::vector<int> seam_ys;
     #pragma omp parallel
     {
@@ -333,10 +333,10 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             if (is_first) {
                 is_first = false;
                 seam = i;
-                uint32_t left_cluster_no = assignment[i * W];
+                uint16_t left_cluster_no = assignment[i * W];
                 for (int j = 1; j < W; j++) {
                     int index = i * W + j;
-                    uint32_t cluster_no = assignment[index];
+                    uint16_t cluster_no = assignment[index];
                     if (left_cluster_no == cluster_no) {
                         cc_set.merge(index - 1, index);
                     } else if (cluster_no != 0xFFFF) {
@@ -347,11 +347,11 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                 continue;
             }
 
-            uint32_t left_cluster_no;
+            uint16_t left_cluster_no;
             {
                 int index = i * W;
                 int up_index = index - W;
-                uint32_t cluster_no = assignment[index];
+                uint16_t cluster_no = assignment[index];
                 if (assignment[up_index] == cluster_no) {
                     cc_set.merge(up_index, index);
                 } else if (cluster_no != 0xFFFF) {
@@ -361,7 +361,7 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             }
             for (int j = 1; j < W; j++) {
                 int index = i * W + j;
-                uint32_t cluster_no = assignment[index];
+                uint16_t cluster_no = assignment[index];
                 int left_index = index - 1, up_index = index - W;
 
                 if (left_cluster_no == cluster_no) {
@@ -406,7 +406,7 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
         for (int j = 0; j < W; j++) {
             int index = i * W + j;
             int up_index = index - W;
-            uint32_t cluster_no = assignment[index];
+            uint16_t cluster_no = assignment[index];
             if (assignment[up_index] == cluster_no) {
                 cc_set.merge(index, up_index);
             } else if (cluster_no != 0xFFFF) {
@@ -416,7 +416,7 @@ static void build_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
     }
 }
 
-static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint32_t *assignment) {
+static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters, int H, int W, uint16_t *assignment) {
     std::vector<int> seam_ys;
     #pragma omp parallel
     {
@@ -427,10 +427,10 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             if (is_first) {
                 is_first = false;
                 seam = i;
-                uint32_t left_cluster_no = assignment[i * W];
+                uint16_t left_cluster_no = assignment[i * W];
                 for (int j = 1; j < W; j++) {
                     int index = i * W + j;
-                    uint32_t cluster_no = assignment[index];
+                    uint16_t cluster_no = assignment[index];
                     if (left_cluster_no == 0xFFFF) {
                         if (cluster_no == 0xFFFF) {
                             cc_set.merge(index - 1, index);
@@ -443,12 +443,12 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
                 continue;
             }
 
-            uint32_t left_cluster_no;
+            uint16_t left_cluster_no;
             {
                 int index = i * W;
                 int up_index = index - W;
-                uint32_t cluster_no = assignment[index];
-                uint32_t up_cluster_no = assignment[up_index];
+                uint16_t cluster_no = assignment[index];
+                uint16_t up_cluster_no = assignment[up_index];
                 if (up_cluster_no == 0xFFFF){
                     if (cluster_no == 0xFFFF) {
                         cc_set.merge(up_index, index);
@@ -460,9 +460,9 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
             }
             for (int j = 1; j < W; j++) {
                 int index = i * W + j;
-                uint32_t cluster_no = assignment[index];
+                uint16_t cluster_no = assignment[index];
                 int left_index = index - 1, up_index = index - W;
-                uint32_t up_cluster_no = assignment[up_index];
+                uint16_t up_cluster_no = assignment[up_index];
 
                 if (cluster_no == 0xFFFF) {
                     if (left_cluster_no == 0xFFFF && cc_set.parents[left_index] != cc_set.parents[index]) {
@@ -493,7 +493,7 @@ static void merge_cc_set(ConnectedComponentSet &cc_set, const Cluster* clusters,
         for (int j = 0; j < W; j++) {
             int index = i * W + j;
             int up_index = index - W;
-            uint32_t cluster_no = assignment[index];
+            uint16_t cluster_no = assignment[index];
             if (assignment[up_index] == 0xFFFF) {
                 if (cluster_no == 0xFFFF) {
                     cc_set.merge(up_index, index);
@@ -513,7 +513,7 @@ static void fast_remove_blob(BaseContext* context) {
     if (K <= 0 || H <= 0 || W <= 0) return;
 
     const Cluster* clusters = context->clusters;
-    uint32_t* assignment = context->assignment;
+    uint16_t* assignment = context->assignment;
 
     ConnectedComponentSet cc_set(H * W);
 
@@ -539,7 +539,7 @@ static void fast_remove_blob(BaseContext* context) {
     std::shared_ptr<FlatCCSet> flat_blank_cc = cc_set.flatten(assignment);
     // auto t5 = Clock::now();
 
-    std::vector<uint32_t> sub_clsuter_nos(flat_blank_cc->num_components, 0xFFFF);
+    std::vector<uint16_t> sub_clsuter_nos(flat_blank_cc->num_components, 0xFFFF);
 
     #pragma omp parallel
     {
@@ -552,7 +552,7 @@ static void fast_remove_blob(BaseContext* context) {
 
         #pragma omp for
         for (int i = 0; i < H * W; i++) {
-            uint32_t sub_cluster_no = sub_clsuter_nos[flat_blank_cc->component_assignment[i]];
+            uint16_t sub_cluster_no = sub_clsuter_nos[flat_blank_cc->component_assignment[i]];
             if (sub_cluster_no != 0xFFFF) {
                 assignment[i] = sub_cluster_no;
             }
@@ -572,7 +572,7 @@ static void do_slic_enforce_connectivity_dfs(BaseContext *context) {
     int W = context->W;
     int K = context->K;
     const Cluster* clusters = context->clusters;
-    uint32_t* assignment = context->assignment;
+    uint16_t* assignment = context->assignment;
     if (K <= 0) return;
 
     uint8_t *visited = new uint8_t[H * W];
