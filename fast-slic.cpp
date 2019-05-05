@@ -5,12 +5,16 @@
 
 class Context : public BaseContext {};
 
-static inline uint32_t get_assignment_value(const Cluster* cluster, const uint8_t* image, int32_t base_index, uint16_t spatial_dist, uint8_t quantize_level) {
-    int32_t img_base_index = 3 * base_index;
-    uint8_t r = image[img_base_index], g = image[img_base_index + 1], b = image[img_base_index + 2];
-    uint16_t color_dist = ((uint32_t)(fast_abs<int16_t>(r - (int16_t)cluster->r) + fast_abs<int16_t>(g - (int16_t)cluster->g) + fast_abs<int16_t>(b - (int16_t)cluster->b)) << quantize_level);
-    return ((uint32_t)(color_dist + spatial_dist) << 16) + (uint32_t)cluster->number;
-}
+
+#define REPLACE_ASSIGNMENT_VALUE \
+    int base_index = W * i + j; \
+    int16_t r = image[3 * base_index], g = image[3 * base_index + 1], b = image[3 * base_index + 2]; \
+    uint16_t color_dist = (fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b)) << quantize_level; \
+    uint16_t dist = color_dist + spatial_dist; \
+    if (min_dists[base_index] > dist) { \
+        min_dists[base_index] = dist; \
+        assignment[base_index] = cluster_no; \
+    }
 
 static void slic_assign_cluster_oriented(Context *context) {
     auto H = context->H;
@@ -21,19 +25,9 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto assignment = context->assignment;
     auto quantize_level = context->quantize_level;
     auto spatial_normalize_cache = context->spatial_normalize_cache;
+    int16_t S = context->S;
 
-    const int16_t S = context->S;
-
-    #if _OPENMP >= 200805
-    #pragma omp parallel for collapse(2)
-    #else
-    #pragma omp parallel for
-    #endif
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            assignment[i * W + j] =  0xFFFFFFFF;
-        }
-    }
+    std::vector<uint16_t> min_dists(H * W, 0xFFFF);
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
     std::vector<ZOrderTuple> cluster_sorted_tuples;
@@ -47,7 +41,9 @@ static void slic_assign_cluster_oriented(Context *context) {
         std::sort(cluster_sorted_tuples.begin(), cluster_sorted_tuples.end());
     }
 
-    // auto t1 = Clock::now();
+#ifdef PROTOTYPE_MAIN_DEMO
+    auto t1 = Clock::now();
+#endif
 
     // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
     // OPTIMIZATION 2: L1 norm instead of L2
@@ -60,28 +56,26 @@ static void slic_assign_cluster_oriented(Context *context) {
 
         int16_t cluster_y = cluster->y;
         int16_t cluster_x = cluster->x;
-        const int16_t y_lo = my_max<int16_t>(0, cluster_y - S), y_hi = my_min<int16_t>(H, cluster_y + S + 1);
-        const int16_t x_lo = my_max<int16_t>(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
+        int16_t cluster_r = cluster->r;
+        int16_t cluster_g = cluster->g;
+        int16_t cluster_b = cluster->b;
+        uint32_t cluster_no =  cluster->number;
+        const int16_t y_lo = my_max(0, cluster_y - S), y_hi = my_min(H, cluster_y + S + 1);
+        const int16_t x_lo = my_max(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
 
         uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
         for (int16_t i = y_lo; i < cluster_y; i++) {
             uint16_t current_manhattan = row_first_manhattan--;
             #pragma GCC unroll(2)
             for (int16_t j = x_lo; j < cluster_x; j++) {
-                int32_t base_index = W * i + j;
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
+                REPLACE_ASSIGNMENT_VALUE
             }
 
             #pragma GCC unroll(2)
             for (int16_t j = cluster_x; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
+                REPLACE_ASSIGNMENT_VALUE
             }
         }
 
@@ -89,39 +83,24 @@ static void slic_assign_cluster_oriented(Context *context) {
             uint16_t current_manhattan = row_first_manhattan++;
             #pragma GCC unroll(2)
             for (int16_t j = x_lo; j < cluster_x; j++) {
-                int32_t base_index = W * i + j;
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
+                REPLACE_ASSIGNMENT_VALUE
             }
 
             #pragma GCC unroll(2)
             for (int16_t j = cluster_x; j < x_hi; j++) {
-                int32_t base_index = W * i + j;
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                uint32_t assignment_val = get_assignment_value(cluster, image, base_index, spatial_dist, quantize_level);
-                if (assignment[base_index] > assignment_val)
-                    assignment[base_index] = assignment_val;
+                REPLACE_ASSIGNMENT_VALUE
             }
         }
-
     }
-    // auto t2 = Clock::now();
+#ifdef PROTOTYPE_MAIN_DEMO
+    auto t2 = Clock::now();
+#endif
 
-    // Clean up: Drop distance part in assignment and let only cluster numbers remain
-    #if _OPENMP >= 200805
-    #pragma omp parallel for collapse(2)
-    #else
-    #pragma omp parallel for
-    #endif
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            assignment[i * W + j] &= 0x0000FFFF; // drop the leading 2 bytes
-        }
-    }
-
-    // std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#ifdef PROTOTYPE_MAIN_DEMO
+    std::cerr << "Tightloop: " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+#endif
 
 }
 
@@ -226,23 +205,55 @@ extern "C" {
         context.clusters = clusters;
         context.assignment = assignment;
 
-        context.prepare_spatial();
 
-        for (int i = 0; i < max_iter; i++) {
-            // auto t1 = Clock::now();
-            slic_assign(&context);
-            // auto t2 = Clock::now();
-            slic_update_clusters(&context);
-            // auto t3 = Clock::now();
-            // std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            // std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+#       ifdef FAST_SLIC_TIMER
+        {
+        auto t1 = Clock::now();
+#       endif
+        context.prepare_spatial();
+        #if _OPENMP >= 200805
+        #pragma omp parallel for collapse(2)
+        #else
+        #pragma omp parallel for
+        #endif
+        for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+                assignment[i * W + j] = 0xFFFF;
+            }
         }
 
-        // auto t1 = Clock::now();
-        slic_enforce_connectivity(&context);
-        // auto t2 = Clock::now();
+#       ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        std::cerr << "Prepare spatial " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us \n";
+        }
+#       endif
 
-        // std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        for (int i = 0; i < max_iter; i++) {
+#           ifdef FAST_SLIC_TIMER
+            auto t1 = Clock::now();
+#           endif
+            slic_assign(&context);
+#           ifdef FAST_SLIC_TIMER
+            auto t2 = Clock::now();
+#           endif
+            slic_update_clusters(&context);
+#           ifdef FAST_SLIC_TIMER
+            auto t3 = Clock::now();
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+#           endif
+        }
+
+#       ifdef FAST_SLIC_TIMER
+        {
+        auto t1 = Clock::now();
+#       endif
+        slic_enforce_connectivity(&context);
+#       ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
+        }
+#       endif
     }
 
     static uint32_t symmetric_int_hash(uint32_t x, uint32_t y) {
