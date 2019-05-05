@@ -79,7 +79,7 @@ else:
 
 setup(
     name="fast-slic",
-    version="0.3.1",
+    version="0.3.2",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
