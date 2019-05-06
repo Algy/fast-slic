@@ -427,13 +427,7 @@ extern "C" {
         uint32_t quad_image_memory_width;
         context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next((W + 2 * S) * 4);
         uint8_t* aligned_quad_image_base = simd_helper::alloc_aligned_array<uint8_t>((H + 2 * S) * quad_image_memory_width);
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                for (int k = 0; k < 3; k++) {
-                    aligned_quad_image_base[(i + S) * quad_image_memory_width + 4 * (j + S) + k] = image[i * W * 3 + 3 * j + k];
-                }
-            }
-        }
+
 
         context.aligned_quad_image_base = aligned_quad_image_base;
         context.aligned_quad_image = &aligned_quad_image_base[quad_image_memory_width * S + S * 4];
@@ -451,11 +445,19 @@ extern "C" {
 #           ifdef FAST_SLIC_TIMER
             auto t1 = Clock::now();
 #           endif
+
+            #pragma omp parallel for
+            for (int i = 0; i < H; i++) {
+                for (int j = 0; j < W; j++) {
+                    for (int k = 0; k < 3; k++) {
+                        aligned_quad_image_base[(i + S) * quad_image_memory_width + 4 * (j + S) + k] = image[i * W * 3 + 3 * j + k];
+                    }
+                }
+            }
+
             __m256i constant = _mm256_set1_epi16(0xFFFF);
             #pragma omp parallel for
             for (int i = 0; i < H; i++) {
-                #pragma unroll(4)
-                #pragma GCC unroll(4)
                 for (int j = 0; j < W; j += 16) {
                     _mm256_storeu_si256((__m256i *)&context.aligned_assignment[context.assignment_memory_width * i + j], constant);
                 }
@@ -490,6 +492,7 @@ extern "C" {
             auto t1 = Clock::now();
 #           endif
 
+            #pragma omp parallel for
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
                     assignment[W * i + j] = context.aligned_assignment[context.assignment_memory_width * i + j];

@@ -652,8 +652,6 @@ static void slic_enforce_connectivity(BaseContext *context) {
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
     if (H <= 0 || W <= 0 || K <= 0) return;
-    std::vector<int> gradients(H * W, 1 << 21);
-
     int n_y = (int)sqrt((double)K);
 
     std::vector<int> n_xs(n_y, K / n_y);
@@ -669,24 +667,6 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
     }
 
     int h = ceil_int(H, n_y);
-    // compute gradients
-    for (int i = 1; i < H - 1; i += h) {
-        int w = ceil_int(W, n_xs[my_min<int>((i - 1) / h, n_y - 1)]);
-        for (int j = 1; j < W - 1; j += w) {
-            int base_index = i * W + j;
-            int img_base_index = 3 * base_index;
-            int dx = 
-                fast_abs((int)image[img_base_index + 3] - (int)image[img_base_index - 3]) +
-                fast_abs((int)image[img_base_index + 4] - (int)image[img_base_index - 2]) +
-                fast_abs((int)image[img_base_index + 5] - (int)image[img_base_index - 1]);
-            int dy = 
-                fast_abs((int)image[img_base_index + 3 * W] - (int)image[img_base_index - 3 * W]) +
-                fast_abs((int)image[img_base_index + 3 * W + 1] - (int)image[img_base_index - 3 * W + 1]) +
-                fast_abs((int)image[img_base_index + 3 * W + 2] - (int)image[img_base_index - 3 * W + 2]);
-            gradients[base_index] = dx + dy;
-        }
-    }
-
     int acc_k = 0;
     for (int i = 0; i < H; i += h) {
         int w = ceil_int(W, n_xs[my_min<int>(i / h, n_y - 1)]);
@@ -694,25 +674,9 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
             if (acc_k >= K) {
                 break;
             }
-
-            int eh = my_min<int>(i + h, H - 1), ew = my_min<int>(j + w, W - 1);
             int center_y = i + h / 2, center_x = j + w / 2;
-            int min_gradient = 1 << 21;
-            for (int ty = i; ty < eh; ty++) {
-                for (int tx = j; tx < ew; tx++) {
-                    int base_index = ty * W + tx;
-                    if (min_gradient > gradients[base_index]) {
-                        center_y = ty;
-                        center_x = tx;
-                        min_gradient = gradients[base_index];
-                    }
-
-                }
-            }
-
             clusters[acc_k].y = clamp(center_y, 0, H - 1);
             clusters[acc_k].x = clamp(center_x, 0, W - 1);
-
 
             acc_k++;
         }
