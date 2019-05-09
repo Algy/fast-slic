@@ -103,8 +103,8 @@ public:
         spatial_normalize_cache = new uint16_t[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
             // rescale distance [0, 1] to [0, 25.5] (color-scale).
-            spatial_normalize_cache[x] = (uint16_t)(compactness * ((float)x / (2 * S) * 25.5f) * (1 << quantize_level));
-
+            uint16_t val = 255.0f * compactness * (float)x / (float)S;
+            spatial_normalize_cache[x] = val;
         }
 
         const uint16_t patch_height = 2 * S + 1, patch_virtual_width = 2 * S + 1;
@@ -650,6 +650,7 @@ static void slic_enforce_connectivity(BaseContext *context) {
     }
 }
 
+
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
     if (H <= 0 || W <= 0 || K <= 0) return;
     int n_y = (int)sqrt((double)K);
@@ -675,8 +676,50 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
                 break;
             }
             int center_y = i + h / 2, center_x = j + w / 2;
-            clusters[acc_k].y = clamp(center_y, 0, H - 1);
-            clusters[acc_k].x = clamp(center_x, 0, W - 1);
+            center_y = clamp(center_y, 0, H - 1);
+            center_x = clamp(center_x, 0, W - 1);
+
+            // Avoid choosing a border by locating a pixel with the least gradient
+            /*
+            int num_steps = 0;
+            while (num_steps < 10 && center_x > 1 && center_x < W - 2 && center_y > 1 && center_y < H - 2) {
+                uint16_t min_grad = 0xFFFF;
+                int min_grad_x = 0;
+                int min_grad_y = 0;
+                for (int dindex = 0; dindex < 9; dindex++) {
+                    int pos_y = center_y + dindex / 3 - 1;
+                    int pos_x = center_x + dindex % 3 - 1;
+                    int index = pos_y * W + pos_x;
+
+                    int index_r = index + 1;
+                    int index_l = index - 1;
+                    int index_u = index - W;
+                    int index_d = index + W;
+
+                    uint16_t grad = (
+                        fast_abs((int16_t)image[3 * index_r] - (int16_t)image[3 * index_l]) +
+                        fast_abs((int16_t)image[3 * index_r + 1] - (int16_t)image[3 * index_l + 1]) +
+                        fast_abs((int16_t)image[3 * index_r + 2] - (int16_t)image[3 * index_l + 2]) +
+                        fast_abs((int16_t)image[3 * index_d] - (int16_t)image[3 * index_u]) +
+                        fast_abs((int16_t)image[3 * index_d + 1] - (int16_t)image[3 * index_u + 1]) +
+                        fast_abs((int16_t)image[3 * index_d + 2] - (int16_t)image[3 * index_u + 2])
+                    );
+
+                    if (min_grad > grad) {
+                        min_grad = grad;
+                        min_grad_x = pos_x;
+                        min_grad_y = pos_y;
+                    }
+                }
+                if (center_x == min_grad_x && center_y == min_grad_y) break;
+                center_x = min_grad_x;
+                center_y = min_grad_y;
+                num_steps++;
+            }
+            */
+            clusters[acc_k].y = center_y;
+            clusters[acc_k].x = center_x;
+
 
             acc_k++;
         }
