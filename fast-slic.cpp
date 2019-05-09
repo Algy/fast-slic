@@ -9,7 +9,7 @@ class Context : public BaseContext {};
 #define REPLACE_ASSIGNMENT_VALUE \
     int base_index = W * i + j; \
     int16_t r = image[3 * base_index], g = image[3 * base_index + 1], b = image[3 * base_index + 2]; \
-    uint16_t color_dist = (fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b)) << quantize_level; \
+    uint16_t color_dist = (fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b)); \
     uint16_t dist = color_dist + spatial_dist; \
     if (min_dists[base_index] > dist) { \
         min_dists[base_index] = dist; \

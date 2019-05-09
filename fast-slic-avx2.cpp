@@ -79,7 +79,8 @@ inline void get_assignment_value_vec(
     __m256i sad = _mm256_sad_epu8(image_segment, cluster_color_vec);
     __m128i shrinked__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(sad, color_swap_mask));
     __m128i duplicate__narrow = _mm_shuffle_epi8(shrinked__narrow, sad_duplicate_mask);
-    __m128i color_dist_vec__narrow = _mm_slli_epi32(duplicate__narrow, quantize_level);
+    // __m128i color_dist_vec__narrow = _mm_slli_epi32(duplicate__narrow, quantize_level);
+    __m128i color_dist_vec__narrow duplicate__narrow;
     __m128i dist_vec__narrow = _mm_adds_epu16(color_dist_vec__narrow, spatial_dist_vec__narrow);
 #else 
     __m128i lo_segment__narrow = _mm256_extracti128_si256(image_segment, 0);
@@ -94,7 +95,8 @@ inline void get_assignment_value_vec(
     __m128i lo_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(lo_sad, color_swap_mask));
     __m128i hi_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(hi_sad, color_swap_mask));
     __m128i packed_sad__narrow = _mm_packs_epi32(lo_sad__narrow, hi_sad__narrow);
-    __m128i color_dist_vec__narrow = _mm_slli_epi32(packed_sad__narrow, quantize_level);
+    // __m128i color_dist_vec__narrow = _mm_slli_epi32(packed_sad__narrow, quantize_level);
+    __m128i color_dist_vec__narrow = packed_sad__narrow;
     #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         uint16_t shorts[8];
