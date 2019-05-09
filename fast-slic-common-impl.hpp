@@ -103,7 +103,7 @@ public:
         spatial_normalize_cache = new uint16_t[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
             // rescale distance [0, 1] to [0, 25.5] (color-scale).
-            uint16_t val = 255.0f * compactness * (float)x / (float)S;
+            uint16_t val = compactness * (float)x / (float)S;
             spatial_normalize_cache[x] = val;
         }
 
@@ -653,6 +653,9 @@ static void slic_enforce_connectivity(BaseContext *context) {
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
     if (H <= 0 || W <= 0 || K <= 0) return;
+#ifdef FAST_SLIC_TIMER
+    auto t1 = Clock::now();
+#endif
     int n_y = (int)sqrt((double)K);
 
     std::vector<int> n_xs(n_y, K / n_y);
@@ -740,6 +743,11 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
         clusters[k].number = k;
         clusters[k].num_members = 0;
     }
+    #ifdef FAST_SLIC_TIMER
+    auto t2 = Clock::now();
+    std::cerr << "Cluster initialization: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+
+    #endif
 }
 
 

@@ -3,7 +3,7 @@ from .base_slic import BaseSlic
 
 
 class Slic(BaseSlic):
-    def __init__(self, num_components=None, slic_model=None, compactness=10, min_size_factor=0.05, quantize_level=6):
+    def __init__(self, num_components=None, slic_model=None, compactness=20, min_size_factor=0.05, quantize_level=6):
         super().__init__(
             num_components=num_components,
             slic_model=slic_model,
