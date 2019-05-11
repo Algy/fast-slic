@@ -161,7 +161,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         #pragma unroll(4)
         #pragma GCC unroll(4)
         for (int j = 0; j < W; j += 8) {
-            vst1q_u16(&context->aligned_assignment[context->assignment_memory_width * i + j], constant);
+            vst1q_u16(&aligned_min_dists[min_dist_memory_width * i + j], constant);
         }
     }
 
@@ -195,14 +195,14 @@ static void slic_assign_cluster_oriented(Context *context) {
         const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
 
         uint16x8_t cluster_number_vec = {
-            cluster->number,
-            cluster->number,
-            cluster->number,
-            cluster->number,
-            cluster->number,
-            cluster->number,
-            cluster->number,
-            cluster->number
+            cluster_number,
+            cluster_number,
+            cluster_number,
+            cluster_number,
+            cluster_number,
+            cluster_number,
+            cluster_number,
+            cluster_number
         };
 
         uint8x16_t cluster_color_vec = {
