@@ -64,7 +64,7 @@ inline void get_assignment_value_vec(
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
-        for (int v = 0; v < 4 * my_min(8, patch_virtual_width - j); v++) {
+        for (int v = 0; v < my_min(8, patch_virtual_width - j); v++) {
             if (image_segment_1[v] != img_quad_row_1[v]) {
                 abort();
             }
@@ -166,8 +166,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     const uint16x8_t constant = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
     #pragma omp parallel for
     for (int i = 0; i < H; i++) {
-        #pragma unroll(4)
-        #pragma GCC unroll(4)
         for (int j = 0; j < W; j += 8) {
             vst1q_u16(&aligned_min_dists[min_dist_memory_width * i + j], constant);
         }
