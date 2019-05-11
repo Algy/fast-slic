@@ -34,6 +34,11 @@ cdef extern from "fast-slic-avx2.h":
     void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
     int fast_slic_supports_avx2() nogil
 
+cdef extern from "fast-slic-neon.h":
+    void fast_slic_initialize_clusters_neon(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
+    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
+    int fast_slic_supports_neon() nogil
+
 
 cdef class NodeConnectivity:
     cdef Connectivity* _c_connectivity
@@ -67,3 +72,5 @@ cdef class SlicModel(BaseSlicModel):
 cdef class SlicModelAvx2(BaseSlicModel):
     pass
 
+cdef class SlicModelNeon(BaseSlicModel):
+    pass

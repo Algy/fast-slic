@@ -115,6 +115,8 @@ cdef class BaseSlicModel:
                 cfast_slic.fast_slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
             elif self._get_name() == "avx2":
                 cfast_slic.fast_slic_initialize_clusters_avx2(H, W, K, &image[0, 0, 0], self._c_clusters)
+            elif self._get_name() == "neon":
+                cfast_slic.fast_slic_initialize_clusters_neon(H, W, K, &image[0, 0, 0], self._c_clusters)
             else:
                 raise RuntimeError("Not reachable")
         else:
@@ -148,6 +150,19 @@ cdef class BaseSlicModel:
             )
         elif self._get_name() == 'avx2':
             cfast_slic.fast_slic_iterate_avx2(
+                H,
+                W,
+                K,
+                compactness,
+                min_size_factor,
+                quantize_level,
+                max_iter,
+                &image[0, 0, 0],
+                c_clusters,
+                <uint16_t *>&assignments[0, 0]
+            )
+        elif self._get_name() == 'neon':
+            cfast_slic.fast_slic_iterate_neon(
                 H,
                 W,
                 K,
@@ -248,6 +263,10 @@ cdef class SlicModelAvx2(BaseSlicModel):
     cpdef _get_name(self):
         return "avx2"
 
+cdef class SlicModelNeon(BaseSlicModel):
+    cpdef _get_name(self):
+        return "neon"
+
 cdef class NodeConnectivity:
     @staticmethod
     cdef create(Connectivity* conn):
@@ -275,5 +294,7 @@ cdef class NodeConnectivity:
 def slic_supports_arch(name):
     if name == 'avx2':
         return cfast_slic.fast_slic_supports_avx2() == 1
+    elif name == 'neon':
+        return cfast_slic.fast_slic_supports_neon() == 1
     return False
 
