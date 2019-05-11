@@ -569,8 +569,8 @@ int main(int argc, char** argv) {
     }
 
     auto t1 = Clock::now();
-    fast_slic_initialize_clusters_avx2(H, W, K, image.get(), clusters);
-    fast_slic_iterate_avx2(H, W, K, compactness, 0.1, quantize_level, max_iter, image.get(), clusters, assignment.get());
+    fast_slic_initialize_clusters_neon(H, W, K, image.get(), clusters);
+    fast_slic_iterate_neon(H, W, K, compactness, 0.1, quantize_level, max_iter, image.get(), clusters, assignment.get());
 
     auto t2 = Clock::now();
     // 6 times faster than skimage.segmentation.slic
