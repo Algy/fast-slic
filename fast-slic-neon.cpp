@@ -8,8 +8,8 @@
 
 class Context : public BaseContext {
 public:
-    uint8_t* __restrict__ aligned_quad_image_base = nullptr;
-    uint8_t* __restrict__ aligned_quad_image = nullptr; // copied image
+    uint8_t* __restrict__ aligned_quad_image_base[3] = {nullptr, nullptr, nullptr};
+    uint8_t* __restrict__ aligned_quad_image[3] = {nullptr, nullptr, nullptr}; // copied image
     uint16_t quad_image_memory_width;
     uint16_t* __restrict__ aligned_assignment_base = nullptr;
     uint16_t* __restrict__ aligned_assignment = nullptr;
@@ -19,8 +19,10 @@ public:
     int min_dist_memory_width; // memory width of aligned_min_dists;
 public:
     virtual ~Context() {
-        if (aligned_quad_image_base) {
-            simd_helper::free_aligned_array(aligned_quad_image_base);
+        for (int i = 0; i < 3; i++) {
+            if (aligned_quad_image_base[i]) {
+                simd_helper::free_aligned_array(aligned_quad_image_base[i]);
+            }
         }
         if (aligned_assignment_base) {
             simd_helper::free_aligned_array(aligned_assignment_base);
@@ -35,9 +37,15 @@ inline void get_assignment_value_vec(
         const Cluster* cluster, const uint16_t* __restrict__ spatial_dist_patch,
         int patch_memory_width,
         int i, int j, int patch_virtual_width,
-        const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
+        const uint8_t* img_quad_row_1,
+        const uint8_t* img_quad_row_2,
+        const uint8_t* img_quad_row_3,
+        const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
-        uint16x8_t cluster_number_vec, uint8x16_t cluster_color_vec,
+        uint16x8_t cluster_number_vec,
+        uint8x8_t cluster_color_1,
+        uint8x8_t cluster_color_2,
+        uint8x8_t cluster_color_3,
         uint16x8_t& new_min_dist, uint16x8_t& new_assignment
         ) {
     uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row);
@@ -49,39 +57,39 @@ inline void get_assignment_value_vec(
     }
 #endif
 
-    uint8x16_t image_segment = vld1q_u8(img_quad_row);
-    uint8x16_t image_segment_2 = vld1q_u8(img_quad_row + 16);
+    uint8x8_t img_segment_1 = vld1_u8(img_quad_row_1);
+    uint8x8_t img_segment_2 = vld1_u8(img_quad_row_2);
+    uint8x8_t img_segment_3 = vld1_u8(img_quad_row_3);
+
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         for (int v = 0; v < 4 * my_min(8, patch_virtual_width - j); v++) {
-            if (v < 16) {
-                if (image_segment[v] != img_quad_row[v]) {
-                    abort();
-                }
-            } else {
-                if (image_segment_2[v - 16] != img_quad_row[v]) {
-                    abort();
-                }
+            if (image_segment_1[v] != img_quad_row_1[v]) {
+                abort();
+            }
+            if (image_segment_2[v] != img_quad_row_2[v]) {
+                abort();
+            }
+            if (image_segment_3[v] != img_quad_row_3[v]) {
+                abort();
             }
         }
     }
 #endif
-    uint8x16_t abs_segment = vabdq_u8(image_segment, cluster_color_vec);
-    uint8x16_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
 
-    uint32x4_t sad_segment = vpaddlq_u16(vpaddlq_u8(abs_segment));
-    uint32x4_t sad_segment_2 = vpaddlq_u16(vpaddlq_u8(abs_segment_2));
-
-    uint16x8_t color_dist_vec = vcombine_u16(vmovn_u32(sad_segment), vmovn_u32(sad_segment_2));
+    uint8x8_t abs_segment_1 = vabd_u8(image_segment_1, cluster_color_1);
+    uint8x8_t abs_segment_2 = vabd_u8(image_segment_2, cluster_color_2);
+    uint8x8_t abs_segment_3 = vabd_u8(image_segment_3, cluster_color_3);
+    uint16x8_t color_dist_vec = vaddw_u8(vaddl_u8(abs_segment_1, abs_segment_2), abs_segment_3);
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         for (int v = 0; v < my_min(8, patch_virtual_width - j); v++) {
-            int dr = fast_abs<int>((int)img_quad_row[4 * v + 0] - (int)cluster->r);
-            int dg = fast_abs<int>((int)img_quad_row[4 * v + 1] - (int)cluster->g);
-            int db= fast_abs<int>((int)img_quad_row[4 * v + 2] - (int)cluster->b);
-            int dist = (dr + dg + db) ;
+            int dr = fast_abs<int>((int)img_quad_row_1[v] - (int)cluster->r);
+            int dg = fast_abs<int>((int)img_quad_row_2[v] - (int)cluster->g);
+            int db= fast_abs<int>((int)img_quad_row_3[v] - (int)cluster->b);
+            int dist = dr + dg + db;
             assert((int)color_dist_vec[v] == dist);
         }
     }
@@ -94,9 +102,9 @@ inline void get_assignment_value_vec(
             assert(
                     (int)dist_vec[v] ==
                     ((int)spatial_dist_patch[patch_memory_width * i + (j + v)] +
-                     ((fast_abs<int>(img_quad_row[4 * v + 0]  - cluster->r) +
-                       fast_abs<int>(img_quad_row[4 * v + 1] - cluster->g) +
-                       fast_abs<int>(img_quad_row[4 * v + 2] - cluster->b)))
+                     ((fast_abs<int>(img_quad_row_1[v]  - cluster->r) +
+                       fast_abs<int>(img_quad_row_2[v] - cluster->g) +
+                       fast_abs<int>(img_quad_row_3[v] - cluster->b)))
                     )
                   );
         }
@@ -205,23 +213,36 @@ static void slic_assign_cluster_oriented(Context *context) {
             cluster_number
         };
 
-        uint8x16_t cluster_color_vec = {
+        uint8x8_t cluster_color_1 = {
             (uint8_t)cluster->r,
-            (uint8_t)cluster->g,
-            (uint8_t)cluster->b,
-            0,
             (uint8_t)cluster->r,
-            (uint8_t)cluster->g,
-            (uint8_t)cluster->b,
-            0,
             (uint8_t)cluster->r,
-            (uint8_t)cluster->g,
-            (uint8_t)cluster->b,
-            0,
             (uint8_t)cluster->r,
+            (uint8_t)cluster->r,
+            (uint8_t)cluster->r,
+            (uint8_t)cluster->r,
+            (uint8_t)cluster->r
+        };
+        uint8x8_t cluster_color_2 = {
             (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g,
+            (uint8_t)cluster->g
+        };
+
+        uint8x8_t cluster_color_3 = {
             (uint8_t)cluster->b,
-            0
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b,
+            (uint8_t)cluster->b
         };
 
         for (int16_t i = 0; i < patch_height; i++) {
@@ -230,38 +251,53 @@ static void slic_assign_cluster_oriented(Context *context) {
             assert((long long)spatial_dist_patch_base_row % 32 == 0);
 #endif
             // not aligned
-            const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
+            int img_base_index = quad_image_memory_width * (y_lo + i) + x_lo;
+            const uint8_t *img_quad_base_row[3] = {
+                aligned_quad_image[0] + img_base_index,
+                aligned_quad_image[1] + img_base_index,
+                aligned_quad_image[2] + img_base_index
+            };
+
             uint16_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
             uint16_t* min_dist_base_row = aligned_min_dists + (i + y_lo) * min_dist_memory_width + x_lo;
 
 #define ASSIGNMENT_VALUE_GETTER_BODY \
     uint16x8_t new_min_dist, new_assignment; \
-    uint16_t* min_dist_row = min_dist_base_row + j; /* unaligned */ \
-    uint16_t* assignment_row = assignment_base_row + j;  /* unaligned */ \
-    const uint8_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
-    const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
     get_assignment_value_vec( \
         cluster, \
         spatial_dist_patch, \
         patch_memory_width, \
         i, j, patch_virtual_width, \
-        img_quad_row, \
+        img_quad_row[0], \
+        img_quad_row[1], \
+        img_quad_row[2], \
         spatial_dist_patch_row, \
         min_dist_row, \
         assignment_row, \
         cluster_number_vec, \
-        cluster_color_vec, \
+        cluster_color_1, \
+        cluster_color_2, \
+        cluster_color_3, \
         new_min_dist, \
         new_assignment \
     );
+            uint16_t* min_dist_row = min_dist_base_row; /* unaligned */
+            uint16_t* assignment_row = assignment_base_row;  /* unaligned */
+            const uint8_t* img_quad_row[3] = img_quad_base_row;
+            const uint16_t* spatial_dist_patch_row = spatial_dist_patch_base_row; /* Spatial distance patch is aligned */
 
-            // (16 + 16)(batch size) / 4(rgba quad) = stride 8
-            #pragma unroll(4)
-            #pragma GCC unroll(4)
+            // stride 8
             for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
                 ASSIGNMENT_VALUE_GETTER_BODY
                 vst1q_u16(min_dist_row, new_min_dist);
                 vst1q_u16(assignment_row, new_assignment);
+
+                min_dist_row += 8;
+                assignment_row += 8;
+                img_quad_row[0] += 8;
+                img_quad_row[1] += 8;
+                img_quad_row[2] += 8;
+                spatial_dist_patch_row++;
             }
 
             if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
@@ -320,7 +356,7 @@ static void slic_update_clusters(Context *context) {
         #endif
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
-                int img_base_index = quad_image_memory_width * i + 4 * j;
+                int img_base_index = quad_image_memory_width * i + j;
                 int assignment_index = assignment_memory_width * i + j;
 
                 uint16_t cluster_no = aligned_assignment[assignment_index];
@@ -328,9 +364,9 @@ static void slic_update_clusters(Context *context) {
                 local_num_cluster_members[cluster_no]++;
                 local_acc_vec[5 * cluster_no + 0] += i;
                 local_acc_vec[5 * cluster_no + 1] += j;
-                local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
-                local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
-                local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
+                local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[0][img_base_index];
+                local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[1][img_base_index];
+                local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[2][img_base_index];
             }
         }
 
@@ -398,12 +434,13 @@ extern "C" {
 
         // Pad image and assignment
         uint32_t quad_image_memory_width;
-        context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next((W + 2 * S) * 4);
-        uint8_t* aligned_quad_image_base = simd_helper::alloc_aligned_array<uint8_t>((H + 2 * S) * quad_image_memory_width);
+        context.quad_image_memory_width = quad_image_memory_width = simd_helper::align_to_next(W + 2 * S);
 
-
-        context.aligned_quad_image_base = aligned_quad_image_base;
-        context.aligned_quad_image = &aligned_quad_image_base[quad_image_memory_width * S + S * 4];
+        for (int n = 0; n < 3; n++) {
+            uint8_t* aligned_quad_image_base = simd_helper::alloc_aligned_array<uint8_t>((H + 2 * S) * quad_image_memory_width);
+            context.aligned_quad_image_base[n] = aligned_quad_image_base;
+            context.aligned_quad_image[n] = &aligned_quad_image_base[quad_image_memory_width * S + S];
+        }
 
         context.assignment_memory_width = simd_helper::align_to_next(W + 2 * S);
         context.aligned_assignment_base = simd_helper::alloc_aligned_array<uint16_t>((H + 2 * S) * context.assignment_memory_width);
@@ -423,7 +460,7 @@ extern "C" {
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
                     for (int k = 0; k < 3; k++) {
-                        aligned_quad_image_base[(i + S) * quad_image_memory_width + 4 * (j + S) + k] = image[i * W * 3 + 3 * j + k];
+                        context.aligned_quad_image[k][i * quad_image_memory_width + j] = image[i * W * 3 + 3 * j + k];
                     }
                 }
             }
