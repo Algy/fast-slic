@@ -108,7 +108,7 @@ inline void get_assignment_value_vec(
     new_min_dist = vminq_u16(old_min_dist, dist_vec);
 
     // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
-    uint16x8_t mask = vceqq_s16(old_min_dist, new_min_dist);
+    uint16x8_t mask = vceqq_u16(old_min_dist, new_min_dist);
     // if mask[i+15:i] is not zero, choose a[i+15:i], otherwise choose b[i+15:i]
     new_assignment = vbslq_u16(mask, old_assignment, cluster_number_vec);
 
