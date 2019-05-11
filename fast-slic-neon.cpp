@@ -37,7 +37,7 @@ inline void get_assignment_value_vec(
         int i, int j, int patch_virtual_width,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
-        uint16x8_t cluster_number_vec, uint16x8_t cluster_color_vec,
+        uint16x8_t cluster_number_vec, uint8x16_t cluster_color_vec,
         uint16x8_t& new_min_dist, uint16x8_t& new_assignment
         ) {
     uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row + j);
