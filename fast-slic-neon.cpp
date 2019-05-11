@@ -301,7 +301,7 @@ static void slic_assign_cluster_oriented(Context *context) {
                 img_quad_row[0] += 8;
                 img_quad_row[1] += 8;
                 img_quad_row[2] += 8;
-                spatial_dist_patch_row++;
+                spatial_dist_patch_row += 8;
             }
 
             if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
