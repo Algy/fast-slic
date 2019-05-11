@@ -283,7 +283,11 @@ static void slic_assign_cluster_oriented(Context *context) {
     );
             uint16_t* min_dist_row = min_dist_base_row; /* unaligned */
             uint16_t* assignment_row = assignment_base_row;  /* unaligned */
-            const uint8_t* img_quad_row[3] = img_quad_base_row;
+            const uint8_t* img_quad_row[3] = {
+                img_quad_base_row[0],
+                img_quad_base_row[1],
+                img_quad_base_row[2]
+            };
             const uint16_t* spatial_dist_patch_row = spatial_dist_patch_base_row; /* Spatial distance patch is aligned */
 
             // stride 8
