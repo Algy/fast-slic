@@ -40,7 +40,7 @@ inline void get_assignment_value_vec(
         uint16x8_t cluster_number_vec, uint8x16_t cluster_color_vec,
         uint16x8_t& new_min_dist, uint16x8_t& new_assignment
         ) {
-    uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row + j);
+    uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row);
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         for (int delta = 0; delta < 8; delta++) {
