@@ -69,7 +69,7 @@ def _check_neon():
         return 0;
     }
     """
-    return _compile_and_check(neon_test, ["-fpu=neon"])
+    return _compile_and_check(neon_test, ["-mfpu=neon"])
 
 
 
