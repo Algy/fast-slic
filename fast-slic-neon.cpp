@@ -70,10 +70,10 @@ inline void get_assignment_value_vec(
     uint8x16_t abs_segment = vabdq_u8(image_segment, cluster_color_vec);
     uint8x16_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
 
-    uint16x8_t sad_rg_ba_segment = vpaddlq_u8(abs_segment);
-    uint16x8_t sad_rg_ba_segment_2 = vpaddlq_u8(abs_segment_2);
+    uint32x4_t sad_segment = vpaddlq_u16(vpaddlq_u8(abs_segment));
+    uint32x4_t sad_segment_2 = vpaddlq_u16(vpaddlq_u8(abs_segment_2));
 
-    uint16x8_t color_dist_vec = vpaddq_u16(sad_rg_ba_segment, sad_rg_ba_segment_2);
+    uint16x8_t color_dist_vec = vcombine_u16(vmovn_u32(sad_segment), vmovn_u32(sad_segment_2));
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
