@@ -13,6 +13,24 @@ from distutils.core import setup
 from distutils.extension import Extension
 
 
+def _compile_and_check(c_content, compiler_args = []):
+    import os, tempfile, subprocess, shutil    
+    tmpdir = tempfile.mkdtemp()
+    curdir = os.getcwd()
+    os.chdir(tmpdir)
+    filename = r'test.c'
+    with open(filename, 'w') as file:
+        file.write(c_content)
+    with open(os.devnull, 'w') as fnull:
+        args = [os.environ.get("CC") or 'cc']
+        args += compiler_args
+        args.append(filename)
+        result = subprocess.call(args, stdout=fnull, stderr=fnull)
+    os.chdir(curdir)
+    #clean up
+    shutil.rmtree(tmpdir)
+    return result == 0
+
 def _check_openmp():
     import os, tempfile, subprocess, shutil    
 
@@ -26,20 +44,7 @@ def _check_openmp():
     printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
     }
         """
-    tmpdir = tempfile.mkdtemp()
-    curdir = os.getcwd()
-    os.chdir(tmpdir)
-    filename = r'test.c'
-    with open(filename, 'w') as file:
-        file.write(omp_test)
-    with open(os.devnull, 'w') as fnull:
-        result = subprocess.call([os.environ.get("CC") or 'cc', '-fopenmp', '-lgomp', filename],
-                                 stdout=fnull, stderr=fnull)
-    os.chdir(curdir)
-    #clean up
-    shutil.rmtree(tmpdir)
-
-    return result == 0
+    return _compile_and_check(omp_test, ['-fopenmp', '-lgomp'])
 
 def _check_avx2():
     from cpuid.cpuid import CPUID
@@ -55,6 +60,18 @@ def _check_avx2():
     except:
         return False
 
+def _check_neon():
+    neon_test = r"""
+#include <arm_neon.h>
+    int main() {
+        const uint16x8_t constant = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
+        const uint32x4_t vadded = vpaddlq_u16(constant);
+        return 0;
+    }
+    """
+    return _compile_and_check(neon_test, ["-fpu=neon"])
+
+
 
 extra_compile_args = []
 extra_link_args = []
@@ -68,6 +85,10 @@ if platform.system() != 'Windows':
         extra_compile_args.append("-DUSE_AVX2")
         # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
+    if platform.machine().lower().startswith("arm") and _check_neon():
+        extra_compile_args.append("-DUSE_NEON")
+        extra_compile_args.append("-mfpu=neon")
+
 else:
     extra_compile_args.append("/openmp")
     if _check_avx2():
