@@ -57,9 +57,9 @@ inline void get_assignment_value_vec(
     }
 #endif
 
-    uint8x8_t img_segment_1 = vld1_u8(img_quad_row_1);
-    uint8x8_t img_segment_2 = vld1_u8(img_quad_row_2);
-    uint8x8_t img_segment_3 = vld1_u8(img_quad_row_3);
+    uint8x8_t image_segment_1 = vld1_u8(img_quad_row_1);
+    uint8x8_t image_segment_2 = vld1_u8(img_quad_row_2);
+    uint8x8_t image_segment_3 = vld1_u8(img_quad_row_3);
 
 
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
@@ -148,7 +148,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto quantize_level = context->quantize_level;
     const int16_t S = context->S;
 
-    const uint8_t* __restrict__ aligned_quad_image = context->aligned_quad_image;
+    auto  aligned_quad_image = context->aligned_quad_image;
     const uint16_t* __restrict__ spatial_dist_patch = (const uint16_t* __restrict__)HINT_ALIGNED(context->spatial_dist_patch);
     uint16_t* __restrict__ aligned_assignment = context->aligned_assignment;
     uint16_t* __restrict__ aligned_min_dists = context->aligned_min_dists;
