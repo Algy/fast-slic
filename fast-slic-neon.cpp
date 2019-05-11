@@ -37,10 +37,10 @@ inline void get_assignment_value_vec(
         int i, int j, int patch_virtual_width,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
-        uint8x16_t cluster_number_vec, uint8x16_t cluster_color_vec,
+        uint16x8_t cluster_number_vec, uint16x8_t cluster_color_vec,
         uint16x8_t& new_min_dist, uint16x8_t& new_assignment
         ) {
-    uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_base_row + j);
+    uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row + j);
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
         for (int delta = 0; delta < 8; delta++) {
@@ -105,7 +105,7 @@ inline void get_assignment_value_vec(
 
     uint16x8_t old_assignment = vld1q_u16(assignment_row);
     uint16x8_t old_min_dist = vld1q_u16(min_dist_row);
-    new_min_dist = vmin_u16(old_min_dist, dist_vec);
+    new_min_dist = vminq_u16(old_min_dist, dist_vec);
 
     // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
     uint16x8_t mask = vceqq_s16(old_min_dist, new_dists);
@@ -161,7 +161,7 @@ static void slic_assign_cluster_oriented(Context *context) {
         #pragma unroll(4)
         #pragma GCC unroll(4)
         for (int j = 0; j < W; j += 8) {
-            vst1q_u16(&context.aligned_assignment[context.assignment_memory_width * i + j], constant);
+            vst1q_u16(&context->aligned_assignment[context->assignment_memory_width * i + j], constant);
         }
     }
 
@@ -265,8 +265,9 @@ static void slic_assign_cluster_oriented(Context *context) {
             }
 
             if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
-                ASSIGNMENT_VALUE_GETTER_BODY
                 uint16_t new_min_dists[8], new_assignments[8];
+                int j = patch_virtual_width_multiple8;
+                ASSIGNMENT_VALUE_GETTER_BODY
                 vst1q_u16(new_min_dists, new_min_dist);
                 vst1q_u16(new_assignments, new_assignment);
                 for (int delta = 0; delta < patch_virtual_width - patch_virtual_width_multiple8; delta++) {
