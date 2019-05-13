@@ -51,6 +51,9 @@ print(assignment)
 print(slic.slic_model.clusters) # The cluster information of superpixels.
 ```
 
+If your machine is ARM with NEON instruction set, which is commonly supported by recent mobile devices and even Raspberry Pi, you can make it two-fold faster by using `fast_slic.neon.SlicNeon` class instead of the original one.
+
+
 ## Performance
 
 With max iteration set to 10, run times of slic implementations for 640x480 image are as follows:
