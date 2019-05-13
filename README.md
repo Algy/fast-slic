@@ -79,6 +79,7 @@ With max iteration set to 10, run times of slic implementations for 640x480 imag
  * To push to the limit, compile it with `FAST_SLIC_AVX2_FASTER` flag and get more performance gain. (though performance margin was small in my pc)
  
 ## TODO
+ - [ ] Publish as a research paper
  - [x] Remove or merge small blobs
  - [x] Include simple CRF utilities
  - [x] Add tests
