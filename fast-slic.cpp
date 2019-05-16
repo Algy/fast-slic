@@ -64,8 +64,11 @@ static void slic_assign_cluster_oriented(Context *context) {
         const int16_t x_lo = my_max(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
 
         uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
+
         for (int16_t i = y_lo; i < cluster_y; i++) {
             uint16_t current_manhattan = row_first_manhattan--;
+
+            if (!context->valid_subsample_row(i)) continue;
             #pragma GCC unroll(2)
             for (int16_t j = x_lo; j < cluster_x; j++) {
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
@@ -81,6 +84,9 @@ static void slic_assign_cluster_oriented(Context *context) {
 
         for (int16_t i = cluster_y; i < y_hi; i++) {
             uint16_t current_manhattan = row_first_manhattan++;
+
+            if (!context->valid_subsample_row(i)) continue;
+
             #pragma GCC unroll(2)
             for (int16_t j = x_lo; j < cluster_x; j++) {
                 uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
@@ -131,12 +137,8 @@ static void slic_update_clusters(Context *context) {
         int *local_num_cluster_members = new int[K];
         std::fill_n(local_num_cluster_members, K, 0);
         std::fill_n(local_acc_vec, K * 5, 0);
-        #if _OPENMP >= 200805
-        #pragma omp for collapse(2)
-        #else
         #pragma omp for
-        #endif
-        for (int i = 0; i < H; i++) {
+        for (int i = context->fit_to_stride(0); i < H; i += context->subsample_stride) {
             for (int j = 0; j < W; j++) {
                 int base_index = W * i + j;
                 int img_base_index = 3 * base_index;
@@ -229,6 +231,14 @@ extern "C" {
 #       endif
 
         for (int i = 0; i < max_iter; i++) {
+            if (i == max_iter - 1) {
+                context.subsample_stride = 1;
+                context.subsample_rem = 0;
+            } else {
+                context.subsample_rem++;
+                context.subsample_rem %= context.subsample_stride;
+            }
+
 #           ifdef FAST_SLIC_TIMER
             auto t1 = Clock::now();
 #           endif
@@ -236,6 +246,7 @@ extern "C" {
 #           ifdef FAST_SLIC_TIMER
             auto t2 = Clock::now();
 #           endif
+
             slic_update_clusters(&context);
 #           ifdef FAST_SLIC_TIMER
             auto t3 = Clock::now();

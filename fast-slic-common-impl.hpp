@@ -74,6 +74,7 @@ static T round_int(T numer, T denom) {
     return (numer + (denom / 2)) / denom;
 }
 
+
 class BaseContext {
 public:
     int H, W, K;
@@ -82,6 +83,8 @@ public:
     float compactness;
     float min_size_factor = 0.1;
     uint8_t quantize_level;
+    int16_t subsample_stride = 2;
+    int16_t subsample_rem = 1;
     Cluster* __restrict__ clusters;
     const uint8_t* __restrict__ image = nullptr;
     uint16_t* __restrict__ spatial_dist_patch = nullptr;
@@ -142,6 +145,17 @@ public:
                 spatial_dist_patch[i * patch_memory_width + j] = val;
             }
         }
+    }
+
+    template <typename T>
+    inline T fit_to_stride(T value) {
+        T plus_rem = subsample_rem - value % subsample_stride;
+        if (plus_rem < 0) plus_rem += subsample_stride;
+        return value + plus_rem;
+    }
+
+    inline bool valid_subsample_row(int i) {
+        return i % subsample_stride == subsample_rem;
     }
 };
 

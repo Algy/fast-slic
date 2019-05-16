@@ -224,7 +224,7 @@ static void slic_assign_cluster_oriented(Context *context) {
             0
         };
 
-        for (int16_t i = 0; i < patch_height; i++) {
+        for (int16_t i = context->fit_to_stride(y_lo) - y_lo; i < patch_height; i += context->subsample_stride) {
             const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
             assert((long long)spatial_dist_patch_base_row % 32 == 0);
@@ -313,12 +313,8 @@ static void slic_update_clusters(Context *context) {
         std::fill_n(local_num_cluster_members, K, 0);
         std::fill_n(local_acc_vec, K * 5, 0);
 
-        #if _OPENMP >= 200805
-        #pragma omp for collapse(2)
-        #else
         #pragma omp for
-        #endif
-        for (int i = 0; i < H; i++) {
+        for (int i = context->fit_to_stride(0); i < H; i += context->subsample_stride) {
             for (int j = 0; j < W; j++) {
                 int img_base_index = quad_image_memory_width * i + 4 * j;
                 int assignment_index = assignment_memory_width * i + j;
@@ -444,6 +440,14 @@ extern "C" {
 
 
         for (int i = 0; i < max_iter; i++) {
+            if (i == max_iter - 1) {
+                context.subsample_stride = 1;
+                context.subsample_rem = 0;
+            } else {
+                context.subsample_rem++;
+                context.subsample_rem %= context.subsample_stride;
+            }
+
 #           ifdef FAST_SLIC_TIMER
             auto t1 = Clock::now();
 #           endif
