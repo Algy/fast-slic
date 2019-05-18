@@ -763,6 +763,3 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
 
     #endif
 }
-
-
-

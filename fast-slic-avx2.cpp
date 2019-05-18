@@ -319,6 +319,17 @@ static void slic_assign(Context *context) {
     }
 }
 
+
+static uint32_t xorshift32(uint32_t x) {
+    x = x ^ (x << 13);
+    x = x ^ (x >> 17);
+    x = x ^ (x << 5);
+    return x;
+}
+
+#include <ctime>
+#include <cstdlib>
+
 static void slic_update_clusters(Context *context) {
     auto H = context->H;
     auto W = context->W;
@@ -331,12 +342,29 @@ static void slic_update_clusters(Context *context) {
 
     int *num_cluster_members = new int[K];
     int *cluster_acc_vec = new int[K * 5]; // sum of [y, x, r, g, b] in cluster
+    uint8_t* random_noise_arr = new uint8_t[H * W + 32];
 
     std::fill_n(num_cluster_members, K, 0);
     std::fill_n((int *)cluster_acc_vec, K * 5, 0);
 
+
     #pragma omp parallel
     {
+        uint32_t rand_seed = (uint32_t)time(nullptr);
+        #pragma omp for
+        for (int i = context->fit_to_stride(0); i < H; i += context->subsample_stride) {
+            for (int j = 0; j < W; j += 32) {
+                int base_index = i * W + j;
+                uint32_t val = rand_seed = xorshift32(rand_seed + i);
+
+                #pragma GCC unroll(32)
+                #pragma unroll(32)
+                for (int k = 0; k < 32; k++) {
+                    random_noise_arr[base_index + k] = (val & ((uint32_t)1 << k)) >> k;
+                }
+            }
+        }
+
         uint32_t *local_acc_vec = new uint32_t[K * 5]; // sum of [y, x, r, g, b] in cluster
         int *local_num_cluster_members = new int[K];
         std::fill_n(local_num_cluster_members, K, 0);
@@ -344,7 +372,12 @@ static void slic_update_clusters(Context *context) {
 
         #pragma omp for
         for (int i = context->fit_to_stride(0); i < H; i += context->subsample_stride) {
-            for (int j = 0; j < W; j++) {
+            for (int j = 0, noise_index = i * W; j < W; j++, noise_index++) {
+                if (random_noise_arr[noise_index]) {
+                    j += 8;
+                    continue;
+                }
+
                 int img_base_index = quad_image_memory_width * i + 4 * j;
                 int assignment_index = assignment_memory_width * i + j;
 
@@ -391,6 +424,7 @@ static void slic_update_clusters(Context *context) {
     }
     delete [] num_cluster_members;
     delete [] cluster_acc_vec;
+    delete [] random_noise_arr;
 }
 
 extern "C" {
