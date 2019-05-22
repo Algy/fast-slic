@@ -22,7 +22,7 @@ cdef extern from "fast-slic-common.h":
 
 cdef extern from "fast-slic.h":
     void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
+    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
     Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint16_t *assignment) nogil
     Connectivity* fast_slic_knn_connectivity(int H, int W, int K, const Cluster* clusters, int num_neighbors) nogil
     void fast_slic_free_connectivity(Connectivity* conn) nogil
@@ -31,12 +31,12 @@ cdef extern from "fast-slic.h":
 
 cdef extern from "fast-slic-avx2.h":
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
+    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
     int fast_slic_supports_avx2() nogil
 
 cdef extern from "fast-slic-neon.h":
     void fast_slic_initialize_clusters_neon(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
+    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
     int fast_slic_supports_neon() nogil
 
 
@@ -54,7 +54,7 @@ cdef class BaseSlicModel:
     cdef public object initialized
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
-    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t quantize_level)
+    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)
     cpdef get_connectivity(self, const int16_t[:,::1] assignments)
     cpdef get_knn_connectivity(self, const int16_t[:,::1] assignments, size_t num_neighbors)
     cpdef get_mask_density(self, const uint8_t[:, ::1] mask, const int16_t[:, ::1] assignments)

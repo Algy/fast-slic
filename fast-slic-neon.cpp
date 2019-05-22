@@ -137,7 +137,7 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto clusters = context->clusters;
     auto assignment_memory_width = context->assignment_memory_width;
     auto min_dist_memory_width = context->min_dist_memory_width;
-    auto quantize_level = context->quantize_level;
+    auto subsample_stride = context->subsample_stride;
     const int16_t S = context->S;
 
     const uint8_t* __restrict__ aligned_quad_image = context->aligned_quad_image;
@@ -376,7 +376,7 @@ extern "C" {
 #       endif
     }
 
-    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint16_t* __restrict__ assignment) {
+    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint16_t* __restrict__ assignment) {
         int S = sqrt(H * W / K);
 
         Context context;
@@ -389,7 +389,7 @@ extern "C" {
         context.assignment = assignment;
         context.compactness = compactness;
         context.min_size_factor = min_size_factor;
-        context.quantize_level = quantize_level;
+        context.subsample_stride = subsample_stride;
         context.clusters = clusters;
 
         // Pad image and assignment
@@ -497,7 +497,7 @@ extern "C" {
 
 extern "C" {
     void fast_slic_initialize_clusters_neon(int H, int W, int K, const uint8_t* image, Cluster *clusters) {}
-    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {}
+    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {}
 int fast_slic_supports_neon() { return 0; }
 }
 
@@ -521,7 +521,7 @@ int main(int argc, char** argv) {
     int K = 100;
     int compactness = 5;
     int max_iter = 2;
-    int quantize_level = 6;
+    int subsample_stride = 6;
     try { 
         if (argc > 1) {
             K = std::stoi(std::string(argv[1]));
@@ -533,10 +533,10 @@ int main(int argc, char** argv) {
             max_iter = std::stoi(std::string(argv[3]));
         }
         if (argc > 4) {
-            quantize_level = std::stoi(std::string(argv[4]));
+            subsample_stride = std::stoi(std::string(argv[4]));
         }
     } catch (...) {
-        std::cerr << "slic num_components compactness max_iter quantize_level" << std::endl;
+        std::cerr << "slic num_components compactness max_iter subsample_stride" << std::endl;
         return 2;
     }
 
@@ -574,7 +574,7 @@ int main(int argc, char** argv) {
 
     auto t1 = Clock::now();
     fast_slic_initialize_clusters_neon(H, W, K, image.get(), clusters);
-    fast_slic_iterate_neon(H, W, K, compactness, 0.1, quantize_level, max_iter, image.get(), clusters, assignment.get());
+    fast_slic_iterate_neon(H, W, K, compactness, 0.1, subsample_stride, max_iter, image.get(), clusters, assignment.get());
 
     auto t2 = Clock::now();
     // 6 times faster than skimage.segmentation.slic

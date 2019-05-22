@@ -1,7 +1,7 @@
 class BaseSlic(object):
-    def __init__(self, num_components, slic_model, compactness, min_size_factor, quantize_level):
+    def __init__(self, num_components, slic_model, compactness, min_size_factor, subsample_stride):
         self.compactness = compactness
-        self.quantize_level = quantize_level
+        self.subsample_stride = subsample_stride
         self.min_size_factor = min_size_factor
         self._slic_model = slic_model and slic_model.copy() or self.make_slic_model(num_components or 100)
         self._last_assignment = None
@@ -17,7 +17,7 @@ class BaseSlic(object):
     def iterate(self, image, max_iter=10):
         if not self._slic_model.initialized:
             self._slic_model.initialize(image)
-        assignment = self._slic_model.iterate(image, max_iter, self.compactness, self.min_size_factor, self.quantize_level)
+        assignment = self._slic_model.iterate(image, max_iter, self.compactness, self.min_size_factor, self.subsample_stride)
         self._last_assignment = assignment
         return assignment
 

@@ -32,7 +32,7 @@ public:
 };
 
 inline void get_assignment_value_vec(
-        const Cluster* cluster, uint8_t quantize_level, const uint16_t* __restrict__ spatial_dist_patch,
+        const Cluster* cluster, const uint16_t* __restrict__ spatial_dist_patch,
         int patch_memory_width,
         int i, int j, int patch_virtual_width,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
@@ -79,7 +79,6 @@ inline void get_assignment_value_vec(
     __m256i sad = _mm256_sad_epu8(image_segment, cluster_color_vec);
     __m128i shrinked__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(sad, color_swap_mask));
     __m128i duplicate__narrow = _mm_shuffle_epi8(shrinked__narrow, sad_duplicate_mask);
-    // __m128i color_dist_vec__narrow = _mm_slli_epi32(duplicate__narrow, quantize_level);
     __m128i color_dist_vec__narrow duplicate__narrow;
     __m128i dist_vec__narrow = _mm_adds_epu16(color_dist_vec__narrow, spatial_dist_vec__narrow);
 #else 
@@ -95,7 +94,6 @@ inline void get_assignment_value_vec(
     __m128i lo_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(lo_sad, color_swap_mask));
     __m128i hi_sad__narrow = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(hi_sad, color_swap_mask));
     __m128i packed_sad__narrow = _mm_packs_epi32(lo_sad__narrow, hi_sad__narrow);
-    // __m128i color_dist_vec__narrow = _mm_slli_epi32(packed_sad__narrow, quantize_level);
     __m128i color_dist_vec__narrow = packed_sad__narrow;
     #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     {
@@ -172,7 +170,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto clusters = context->clusters;
     auto assignment_memory_width = context->assignment_memory_width;
     auto min_dist_memory_width = context->min_dist_memory_width;
-    auto quantize_level = context->quantize_level;
     const int16_t S = context->S;
 
     const uint8_t* __restrict__ aligned_quad_image = context->aligned_quad_image;
@@ -266,7 +263,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
     get_assignment_value_vec( \
         cluster, \
-        quantize_level, \
         spatial_dist_patch, \
         patch_memory_width, \
         i, j, patch_virtual_width, \
@@ -405,7 +401,7 @@ extern "C" {
 #       endif
     }
 
-    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint16_t* __restrict__ assignment) {
+    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t *__restrict__ image, Cluster *__restrict__ clusters, uint16_t* __restrict__ assignment) {
         int S = sqrt(H * W / K);
 
         Context context;
@@ -418,7 +414,7 @@ extern "C" {
         context.assignment = assignment;
         context.compactness = compactness;
         context.min_size_factor = min_size_factor;
-        context.quantize_level = quantize_level;
+        context.subsample_stride = subsample_stride;
         context.clusters = clusters;
 
         // Pad image and assignment
@@ -525,7 +521,7 @@ extern "C" {
 
 extern "C" {
     void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) {}
-    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t quantize_level, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {}
+    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {}
 int fast_slic_supports_avx2() { return 0; }
 }
 
@@ -549,7 +545,7 @@ int main(int argc, char** argv) {
     int K = 100;
     int compactness = 5;
     int max_iter = 2;
-    int quantize_level = 6;
+    int subsample_stride = 6;
     try { 
         if (argc > 1) {
             K = std::stoi(std::string(argv[1]));
@@ -561,10 +557,10 @@ int main(int argc, char** argv) {
             max_iter = std::stoi(std::string(argv[3]));
         }
         if (argc > 4) {
-            quantize_level = std::stoi(std::string(argv[4]));
+            subsample_stride = std::stoi(std::string(argv[4]));
         }
     } catch (...) {
-        std::cerr << "slic num_components compactness max_iter quantize_level" << std::endl;
+        std::cerr << "slic num_components compactness max_iter subsample_stride" << std::endl;
         return 2;
     }
 
@@ -602,7 +598,7 @@ int main(int argc, char** argv) {
 
     auto t1 = Clock::now();
     fast_slic_initialize_clusters_avx2(H, W, K, image.get(), clusters);
-    fast_slic_iterate_avx2(H, W, K, compactness, 0.1, quantize_level, max_iter, image.get(), clusters, assignment.get());
+    fast_slic_iterate_avx2(H, W, K, compactness, 0.1, subsample_stride, max_iter, image.get(), clusters, assignment.get());
 
     auto t2 = Clock::now();
     // 6 times faster than skimage.segmentation.slic

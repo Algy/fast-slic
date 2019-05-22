@@ -82,7 +82,6 @@ public:
     const char* algorithm;
     float compactness;
     float min_size_factor = 0.1;
-    uint8_t quantize_level;
     int16_t subsample_stride = 3;
     int16_t subsample_rem = 1;
     Cluster* __restrict__ clusters;
