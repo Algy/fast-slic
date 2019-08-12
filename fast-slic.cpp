@@ -257,7 +257,7 @@ extern "C" {
         {
         auto t1 = Clock::now();
 #       endif
-        slic_enforce_connectivity(&context);
+        context.enforce_connectivity();
 #       ifdef FAST_SLIC_TIMER
         auto t2 = Clock::now();
         std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";

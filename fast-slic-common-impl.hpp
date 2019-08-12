@@ -25,21 +25,6 @@ typedef std::chrono::high_resolution_clock Clock;
 #define __restrict__ __restrict
 #endif
 
-#ifndef _ZOrderTuple_DEFINED
-#define _ZOrderTuple_DEFINED
-struct ZOrderTuple {
-    uint32_t score;
-    const Cluster* cluster;
-
-    ZOrderTuple(uint32_t score, const Cluster* cluster) : score(score), cluster(cluster) {};
-};
-
-static bool operator<(const ZOrderTuple &lhs, const ZOrderTuple &rhs) {
-    return lhs.score < rhs.score;
-}
-#endif
-
-
 template <typename T>
 static inline T my_max(T x, T y) {
     return (x > y) ? x : y;
@@ -157,47 +142,14 @@ public:
     inline bool valid_subsample_row(int i) {
         return i % subsample_stride == subsample_rem;
     }
+
+    void enforce_connectivity() {
+        int thres = (int)round((double)(S * S) * (double)min_size_factor);
+        if (K <= 0 || H <= 0 || W <= 0) return;
+        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres);
+        ce.execute(assignment);
+    }
 };
-
-static uint32_t calc_z_order(uint16_t yPos, uint16_t xPos)
-{
-    static const uint32_t MASKS[] = {0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF};
-    static const uint32_t SHIFTS[] = {1, 2, 4, 8};
-
-    uint32_t x = xPos;  // Interleave lower 16 bits of x and y, so the bits of x
-    uint32_t y = yPos;  // are in the even positions and bits from y in the odd;
-
-    x = (x | (x << SHIFTS[3])) & MASKS[3];
-    x = (x | (x << SHIFTS[2])) & MASKS[2];
-    x = (x | (x << SHIFTS[1])) & MASKS[1];
-    x = (x | (x << SHIFTS[0])) & MASKS[0];
-
-    y = (y | (y << SHIFTS[3])) & MASKS[3];
-    y = (y | (y << SHIFTS[2])) & MASKS[2];
-    y = (y | (y << SHIFTS[1])) & MASKS[1];
-    y = (y | (y << SHIFTS[0])) & MASKS[0];
-
-    const uint32_t result = x | (y << 1);
-    return result;
-}
-
-
-static uint32_t get_sort_value(int16_t y, int16_t x, int16_t S) {
-    return calc_z_order(y, x);
-}
-
-
-static void slic_enforce_connectivity(BaseContext *context) {
-    int H = context->H;
-    int W = context->W;
-    int K = context->K;
-    int S = context->S;
-    uint16_t* assignment = context->assignment;
-    int thres = (int)round((double)(S * S) * (double)context->min_size_factor);
-    if (K <= 0 || H <= 0 || W <= 0) return;
-    cca::ConnectivityEnforcer ce(assignment, H, W, K, thres);
-    ce.execute(assignment);
-}
 
 
 static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
@@ -231,47 +183,8 @@ static void do_fast_slic_initialize_clusters(int H, int W, int K, const uint8_t*
             center_y = clamp(center_y, 0, H - 1);
             center_x = clamp(center_x, 0, W - 1);
 
-            // Avoid choosing a border by locating a pixel with the least gradient
-            /*
-            int num_steps = 0;
-            while (num_steps < 10 && center_x > 1 && center_x < W - 2 && center_y > 1 && center_y < H - 2) {
-                uint16_t min_grad = 0xFFFF;
-                int min_grad_x = 0;
-                int min_grad_y = 0;
-                for (int dindex = 0; dindex < 9; dindex++) {
-                    int pos_y = center_y + dindex / 3 - 1;
-                    int pos_x = center_x + dindex % 3 - 1;
-                    int index = pos_y * W + pos_x;
-
-                    int index_r = index + 1;
-                    int index_l = index - 1;
-                    int index_u = index - W;
-                    int index_d = index + W;
-
-                    uint16_t grad = (
-                        fast_abs((int16_t)image[3 * index_r] - (int16_t)image[3 * index_l]) +
-                        fast_abs((int16_t)image[3 * index_r + 1] - (int16_t)image[3 * index_l + 1]) +
-                        fast_abs((int16_t)image[3 * index_r + 2] - (int16_t)image[3 * index_l + 2]) +
-                        fast_abs((int16_t)image[3 * index_d] - (int16_t)image[3 * index_u]) +
-                        fast_abs((int16_t)image[3 * index_d + 1] - (int16_t)image[3 * index_u + 1]) +
-                        fast_abs((int16_t)image[3 * index_d + 2] - (int16_t)image[3 * index_u + 2])
-                    );
-
-                    if (min_grad > grad) {
-                        min_grad = grad;
-                        min_grad_x = pos_x;
-                        min_grad_y = pos_y;
-                    }
-                }
-                if (center_x == min_grad_x && center_y == min_grad_y) break;
-                center_x = min_grad_x;
-                center_y = min_grad_y;
-                num_steps++;
-            }
-            */
             clusters[acc_k].y = center_y;
             clusters[acc_k].x = center_x;
-
 
             acc_k++;
         }
