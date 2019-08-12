@@ -30,73 +30,71 @@ static void slic_assign_cluster_oriented(Context *context) {
     std::vector<uint16_t> min_dists(H * W, 0xFFFF);
 
     // Sorting clusters by morton order seems to help for distributing clusters evenly for multiple cores
-    std::vector<ZOrderTuple> cluster_sorted_tuples;
-    {
-        cluster_sorted_tuples.reserve(K);
-        for (int k = 0; k < K; k++) {
-            const Cluster* cluster = &clusters[k];
-            uint32_t score = get_sort_value(cluster->y, cluster->x, S);
-            cluster_sorted_tuples.push_back(ZOrderTuple(score, cluster));
-        }
-        std::sort(cluster_sorted_tuples.begin(), cluster_sorted_tuples.end());
-    }
 
 #ifdef PROTOTYPE_MAIN_DEMO
     auto t1 = Clock::now();
 #endif
 
-    // OPTIMIZATION 1: floating point arithmatics is quantized down to int16_t
-    // OPTIMIZATION 2: L1 norm instead of L2
-    // OPTIMIZATION 5: assignment value is saved combined with distance and cluster number ([distance value (16 bit)] + [cluster number (16 bit)])
-    // OPTIMIZATION 6: Make computations of L1 distance SIMD-friendly
-
-    #pragma omp parallel for schedule(static)
-    for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
-        const Cluster *cluster = cluster_sorted_tuples[cluster_sorted_idx].cluster;
-
-        int16_t cluster_y = cluster->y;
-        int16_t cluster_x = cluster->x;
-        int16_t cluster_r = cluster->r;
-        int16_t cluster_g = cluster->g;
-        int16_t cluster_b = cluster->b;
-        uint16_t cluster_no =  cluster->number;
-        const int16_t y_lo = my_max(0, cluster_y - S), y_hi = my_min(H, cluster_y + S + 1);
-        const int16_t x_lo = my_max(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
-
-        uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
-
-        for (int16_t i = y_lo; i < cluster_y; i++) {
-            uint16_t current_manhattan = row_first_manhattan--;
-
-            if (!context->valid_subsample_row(i)) continue;
-            #pragma GCC unroll(2)
-            for (int16_t j = x_lo; j < cluster_x; j++) {
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                REPLACE_ASSIGNMENT_VALUE
-            }
-
-            #pragma GCC unroll(2)
-            for (int16_t j = cluster_x; j < x_hi; j++) {
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                REPLACE_ASSIGNMENT_VALUE
-            }
+    for (int phase = 0; phase < 9; phase++) {
+        int cell_W = ceil_int(W, 3 * S), cell_H = ceil_int(H, 3 * S);
+        std::vector< std::vector<const Cluster*> > targets(cell_W * cell_H);
+        int cell_off_y = phase / 3, cell_off_x = phase % 3;
+        for (int k = 0; k < K; k++) {
+            int y = clusters[k].y, x = clusters[k].x;
+            if (y / S % 3 == cell_off_y && x / S % 3 == cell_off_x)
+                targets[cell_W * (y / (S * 3)) + (x / (S * 3))].push_back(&clusters[k]);
         }
 
-        for (int16_t i = cluster_y; i < y_hi; i++) {
-            uint16_t current_manhattan = row_first_manhattan++;
+        #pragma omp parallel for schedule(static)
+        for (int cell_ix = 0; cell_ix < targets.size(); cell_ix++) {
+            const std::vector<const Cluster*> &clusters_in_cell = targets[cell_ix];
+            for (int inst = 0; inst < clusters_in_cell.size(); inst++) {
+                const Cluster* cluster = clusters_in_cell[inst];
+                int16_t cluster_y = cluster->y;
+                int16_t cluster_x = cluster->x;
+                int16_t cluster_r = cluster->r;
+                int16_t cluster_g = cluster->g;
+                int16_t cluster_b = cluster->b;
+                uint16_t cluster_no =  cluster->number;
+                const int16_t y_lo = my_max(0, cluster_y - S), y_hi = my_min(H, cluster_y + S + 1);
+                const int16_t x_lo = my_max(0, cluster_x - S), x_hi = my_min<int16_t>(W, cluster_x + S + 1);
 
-            if (!context->valid_subsample_row(i)) continue;
+                uint16_t row_first_manhattan = (cluster_y - y_lo) + (cluster_x - x_lo);
 
-            #pragma GCC unroll(2)
-            for (int16_t j = x_lo; j < cluster_x; j++) {
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
-                REPLACE_ASSIGNMENT_VALUE
-            }
+                for (int16_t i = y_lo; i < cluster_y; i++) {
+                    uint16_t current_manhattan = row_first_manhattan--;
 
-            #pragma GCC unroll(2)
-            for (int16_t j = cluster_x; j < x_hi; j++) {
-                uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
-                REPLACE_ASSIGNMENT_VALUE
+                    if (!context->valid_subsample_row(i)) continue;
+                    #pragma GCC unroll(2)
+                    for (int16_t j = x_lo; j < cluster_x; j++) {
+                        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
+                        REPLACE_ASSIGNMENT_VALUE
+                    }
+
+                    #pragma GCC unroll(2)
+                    for (int16_t j = cluster_x; j < x_hi; j++) {
+                        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
+                        REPLACE_ASSIGNMENT_VALUE
+                    }
+                }
+
+                for (int16_t i = cluster_y; i < y_hi; i++) {
+                    uint16_t current_manhattan = row_first_manhattan++;
+
+                    if (!context->valid_subsample_row(i)) continue;
+
+                    #pragma GCC unroll(2)
+                    for (int16_t j = x_lo; j < cluster_x; j++) {
+                        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan--];
+                        REPLACE_ASSIGNMENT_VALUE
+                    }
+
+                    #pragma GCC unroll(2)
+                    for (int16_t j = cluster_x; j < x_hi; j++) {
+                        uint16_t spatial_dist = spatial_normalize_cache[current_manhattan++];
+                        REPLACE_ASSIGNMENT_VALUE
+                    }
+                }
             }
         }
     }
@@ -443,7 +441,7 @@ int main(int argc, char** argv) {
     int compactness = 5;
     int max_iter = 2;
     int subsample_stride = 7;
-    try { 
+    try {
         if (argc > 1) {
             K = std::stoi(std::string(argv[1]));
         }

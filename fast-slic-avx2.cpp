@@ -44,7 +44,7 @@ inline void get_assignment_value_vec(
 #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
     assert((long long)(spatial_dist_patch_row) % 16 == 0);
 #endif
-    // image_segment: 32 elements of uint8_t 
+    // image_segment: 32 elements of uint8_t
     // cluster_color_vec64: cluster_R cluster_B cluster_G 0 0 0 0 0 cluster_R cluster_G cluster_B 0 ....
     // cluster_color_vec: cluster_R cluster_B cluster_G 0 cluster_R cluster_G cluster_B 0 ...
     // spatial_dist_vec__narrow: 8 elements of uint16_t (128-bit narrow vector)
@@ -81,7 +81,7 @@ inline void get_assignment_value_vec(
     __m128i duplicate__narrow = _mm_shuffle_epi8(shrinked__narrow, sad_duplicate_mask);
     __m128i color_dist_vec__narrow duplicate__narrow;
     __m128i dist_vec__narrow = _mm_adds_epu16(color_dist_vec__narrow, spatial_dist_vec__narrow);
-#else 
+#else
     __m128i lo_segment__narrow = _mm256_extracti128_si256(image_segment, 0);
     __m128i hi_segment__narrow = _mm256_extracti128_si256(image_segment, 1);
 
@@ -202,17 +202,6 @@ static void slic_assign_cluster_oriented(Context *context) {
     auto t0 = Clock::now();
 #   endif
 
-    std::vector<ZOrderTuple> cluster_sorted_tuples;
-    {
-        cluster_sorted_tuples.reserve(K);
-        for (int k = 0; k < K; k++) {
-            const Cluster* cluster = &clusters[k];
-            uint32_t score = get_sort_value(cluster->y, cluster->x, S);
-            cluster_sorted_tuples.push_back(ZOrderTuple(score, cluster));
-        }
-        std::sort(cluster_sorted_tuples.begin(), cluster_sorted_tuples.end());
-    }
-
 #   ifdef FAST_SLIC_TIMER
     auto t1 = Clock::now();
 #   endif
@@ -228,76 +217,89 @@ static void slic_assign_cluster_oriented(Context *context) {
         1, 0, 1, 0
     );
 
- 
-    #pragma omp parallel for schedule(static)
-    for (int cluster_sorted_idx = 0; cluster_sorted_idx < K; cluster_sorted_idx++) {
-        const Cluster *cluster = cluster_sorted_tuples[cluster_sorted_idx].cluster;
-        uint16_t cluster_number = cluster->number;
-        const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
+    for (int phase = 0; phase < 9; phase++) {
+        int cell_W = ceil_int(W, 3 * S), cell_H = ceil_int(H, 3 * S);
+        std::vector< std::vector<const Cluster*> > targets(cell_W * cell_H);
+        int cell_off_y = phase / 3, cell_off_x = phase % 3;
+        for (int k = 0; k < K; k++) {
+            int y = clusters[k].y, x = clusters[k].x;
+            if (y / S % 3 == cell_off_y && x / S % 3 == cell_off_x)
+                targets[cell_W * (y / (S * 3)) + (x / (S * 3))].push_back(&clusters[k]);
+        }
 
-        const int16_t cluster_y = cluster->y, cluster_x = cluster->x;
-        const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
+        #pragma omp parallel for schedule(static)
+        for (int cell_ix = 0; cell_ix < targets.size(); cell_ix++) {
+            const std::vector<const Cluster*> &clusters_in_cell = targets[cell_ix];
+            for (int inst = 0; inst < clusters_in_cell.size(); inst++) {
+                const Cluster *cluster = clusters_in_cell[inst];
+                uint16_t cluster_number = cluster->number;
+                const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
 
-        // Note: x86-64 is little-endian arch. ABGR order is correct.
-        const uint32_t cluster_color_quad = ((uint32_t)cluster->b << 16) + ((uint32_t)cluster->g << 8) + ((uint32_t)cluster->r);
-        __m256i cluster_color_vec64 = _mm256_set1_epi64x((uint64_t)cluster_color_quad);
-        __m256i cluster_color_vec = _mm256_set1_epi32((uint32_t)cluster_color_quad);
-        // 16 elements uint16_t (among there elements are the first 8 elements used)
-        __m128i cluster_number_vec__narrow = _mm_set1_epi16(cluster_number);
+                const int16_t cluster_y = cluster->y, cluster_x = cluster->x;
+                const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
 
-        for (int16_t i = context->fit_to_stride(y_lo) - y_lo; i < patch_height; i += context->subsample_stride) {
-            const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
-#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-            assert((long long)spatial_dist_patch_base_row % 32 == 0);
-#endif
-            // not aligned
-            const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
-            uint16_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
-            uint16_t* min_dist_base_row = aligned_min_dists + (i + y_lo) * min_dist_memory_width + x_lo;
+                // Note: x86-64 is little-endian arch. ABGR order is correct.
+                const uint32_t cluster_color_quad = ((uint32_t)cluster->b << 16) + ((uint32_t)cluster->g << 8) + ((uint32_t)cluster->r);
+                __m256i cluster_color_vec64 = _mm256_set1_epi64x((uint64_t)cluster_color_quad);
+                __m256i cluster_color_vec = _mm256_set1_epi32((uint32_t)cluster_color_quad);
+                // 16 elements uint16_t (among there elements are the first 8 elements used)
+                __m128i cluster_number_vec__narrow = _mm_set1_epi16(cluster_number);
 
-#define ASSIGNMENT_VALUE_GETTER_BODY \
-    __m128i new_assignment__narrow, new_min_dist__narrow; \
-    uint16_t* min_dist_row = min_dist_base_row + j; /* unaligned */ \
-    uint16_t* assignment_row = assignment_base_row + j;  /* unaligned */ \
-    const uint8_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
-    const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
-    get_assignment_value_vec( \
-        cluster, \
-        spatial_dist_patch, \
-        patch_memory_width, \
-        i, j, patch_virtual_width, \
-        img_quad_row, \
-        spatial_dist_patch_row, \
-        min_dist_row, \
-        assignment_row, \
-        cluster_number_vec__narrow, \
-        cluster_color_vec64, \
-        cluster_color_vec, \
-        color_swap_mask, \
-        sad_duplicate_mask, \
-        new_min_dist__narrow, \
-        new_assignment__narrow \
-    ); \
+                for (int16_t i = context->fit_to_stride(y_lo) - y_lo; i < patch_height; i += context->subsample_stride) {
+                    const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
+        #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
+                    assert((long long)spatial_dist_patch_base_row % 32 == 0);
+        #endif
+                    // not aligned
+                    const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
+                    uint16_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
+                    uint16_t* min_dist_base_row = aligned_min_dists + (i + y_lo) * min_dist_memory_width + x_lo;
 
-            // 32(batch size) / 4(rgba quad) = stride 8 
-            #pragma unroll(4)
-            #pragma GCC unroll(4)
-            for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
-                ASSIGNMENT_VALUE_GETTER_BODY
-                _mm_storeu_si128((__m128i*)min_dist_row, new_min_dist__narrow);
-                _mm_storeu_si128((__m128i*)assignment_row, new_assignment__narrow);
-            }
+        #define ASSIGNMENT_VALUE_GETTER_BODY \
+            __m128i new_assignment__narrow, new_min_dist__narrow; \
+            uint16_t* min_dist_row = min_dist_base_row + j; /* unaligned */ \
+            uint16_t* assignment_row = assignment_base_row + j;  /* unaligned */ \
+            const uint8_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
+            const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
+            get_assignment_value_vec( \
+                cluster, \
+                spatial_dist_patch, \
+                patch_memory_width, \
+                i, j, patch_virtual_width, \
+                img_quad_row, \
+                spatial_dist_patch_row, \
+                min_dist_row, \
+                assignment_row, \
+                cluster_number_vec__narrow, \
+                cluster_color_vec64, \
+                cluster_color_vec, \
+                color_swap_mask, \
+                sad_duplicate_mask, \
+                new_min_dist__narrow, \
+                new_assignment__narrow \
+            ); \
 
-            if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
-                uint16_t new_min_dists[8], new_assignments[8];
-                int j = patch_virtual_width_multiple8;
-                ASSIGNMENT_VALUE_GETTER_BODY
-                _mm_storeu_si128((__m128i*)new_min_dists, new_min_dist__narrow);
-                _mm_storeu_si128((__m128i*)new_assignments, new_assignment__narrow);
+                    // 32(batch size) / 4(rgba quad) = stride 8
+                    #pragma unroll(4)
+                    #pragma GCC unroll(4)
+                    for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
+                        ASSIGNMENT_VALUE_GETTER_BODY
+                        _mm_storeu_si128((__m128i*)min_dist_row, new_min_dist__narrow);
+                        _mm_storeu_si128((__m128i*)assignment_row, new_assignment__narrow);
+                    }
 
-                for (int delta = 0; delta < patch_virtual_width - patch_virtual_width_multiple8; delta++) {
-                    min_dist_row[delta] = new_min_dists[delta];
-                    assignment_row[delta] = new_assignments[delta];
+                    if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
+                        uint16_t new_min_dists[8], new_assignments[8];
+                        int j = patch_virtual_width_multiple8;
+                        ASSIGNMENT_VALUE_GETTER_BODY
+                        _mm_storeu_si128((__m128i*)new_min_dists, new_min_dist__narrow);
+                        _mm_storeu_si128((__m128i*)new_assignments, new_assignment__narrow);
+
+                        for (int delta = 0; delta < patch_virtual_width - patch_virtual_width_multiple8; delta++) {
+                            min_dist_row[delta] = new_min_dists[delta];
+                            assignment_row[delta] = new_assignments[delta];
+                        }
+                    }
                 }
             }
         }
@@ -532,7 +534,7 @@ int fast_slic_supports_avx2() { return 0; }
 
 #ifndef USE_AVX2
 #error "Compile it with flag USE_AVX"
-#endif 
+#endif
 
 #include <cstdlib>
 #include <ctime>
@@ -546,7 +548,7 @@ int main(int argc, char** argv) {
     int compactness = 5;
     int max_iter = 2;
     int subsample_stride = 6;
-    try { 
+    try {
         if (argc > 1) {
             K = std::stoi(std::string(argv[1]));
         }
