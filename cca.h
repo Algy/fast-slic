@@ -110,7 +110,7 @@ namespace cca {
         std::vector<int> num_component_members; // ComponentNo -> #OfMembers
         std::vector<segment_no_t> component_leaders; // ComponentNo -> SegmentIndex
     public:
-        ComponentSet(int segment_size) : component_assignment(segment_size) {};
+        ComponentSet(int segment_size) : component_assignment(segment_size, -1) {};
         int get_num_components() const { return (int)num_component_members.size(); };
     };
 

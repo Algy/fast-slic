@@ -311,6 +311,7 @@ namespace cca {
         int size = (int)parents.size();
         std::unique_ptr<ComponentSet> result { new ComponentSet(size) };
         std::atomic<int> component_counter { 0 };
+
         #pragma omp parallel
         {
             // First, rename leading nodes
