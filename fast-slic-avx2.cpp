@@ -217,14 +217,14 @@ static void slic_assign_cluster_oriented(Context *context) {
         1, 0, 1, 0
     );
 
-    for (int phase = 0; phase < 9; phase++) {
-        int cell_W = ceil_int(W, 3 * S), cell_H = ceil_int(H, 3 * S);
+    for (int phase = 0; phase < 4; phase++) {
+        int cell_W = ceil_int(W, 4 * S), cell_H = ceil_int(H, 4 * S);
         std::vector< std::vector<const Cluster*> > targets(cell_W * cell_H);
-        int cell_off_y = phase / 3, cell_off_x = phase % 3;
+        int cell_off_y = phase / 2, cell_off_x = phase % 2;
         for (int k = 0; k < K; k++) {
             int y = clusters[k].y, x = clusters[k].x;
-            if (y / S % 3 == cell_off_y && x / S % 3 == cell_off_x)
-                targets[cell_W * (y / (S * 3)) + (x / (S * 3))].push_back(&clusters[k]);
+            if (y / (2 * S) % 2 == cell_off_y && x / (2 * S) % 2 == cell_off_x)
+                targets[cell_W * (y / (S * 4)) + (x / (S * 4))].push_back(&clusters[k]);
         }
 
         #pragma omp parallel for schedule(static)
