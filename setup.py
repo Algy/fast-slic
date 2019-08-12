@@ -122,7 +122,7 @@ setup(
             Extension(
                 "cfast_slic",
                 include_dirs=[np.get_include()],
-                sources=["fast-slic.cpp", "fast-slic-avx2.cpp", "fast-slic-neon.cpp", "cfast_slic.pyx"],
+                sources=["fast-slic.cpp", "fast-slic-avx2.cpp", "fast-slic-neon.cpp", "cca.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",
