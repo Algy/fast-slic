@@ -1,22 +1,12 @@
-from cfast_slic import SlicModelAvx2, slic_supports_arch
+from cfast_slic import SlicModel, is_supported_arch
 from .base_slic import BaseSlic
 
-if not slic_supports_arch("avx2"):
+if not is_supported_arch("x64/avx2"):
     raise ImportError(
         "fast_slic is not configured with avx2 support. "
         "Compile it again with flag USE_AVX2."
     )
 
 class SlicAvx2(BaseSlic):
-    def __init__(self, num_components=None, slic_model=None, compactness=20, min_size_factor=0.05, subsample_stride=3):
-        super().__init__(
-            num_components=num_components,
-            slic_model=slic_model,
-            compactness=compactness,
-            min_size_factor=min_size_factor,
-            subsample_stride=subsample_stride,
-        )
-
-    def make_slic_model(self, num_components):
-        return SlicModelAvx2(num_components)
-
+    arch_name = "x64/avx2"
+    

@@ -3,22 +3,6 @@
 #include "context.h"
 
 extern "C" {
-    void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) {
-        fslic::ContextBuilder builder;
-        std::unique_ptr<fslic::Context> ctx { builder.build(H, W, K, image, clusters) };
-        ctx->initialize_clusters();
-    }
-
-    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) {
-        fslic::ContextBuilder builder;
-        std::unique_ptr<fslic::Context> ctx { builder.build(H, W, K, image, clusters) };
-        ctx->compactness = compactness;
-        ctx->min_size_factor = min_size_factor;
-        ctx->subsample_stride_config = subsample_stride;
-        ctx->initialize_state();
-        ctx->iterate(assignment, max_iter);
-    }
-
     static uint32_t symmetric_int_hash(uint32_t x, uint32_t y) {
         /*
         x = ((x >> 16) ^ x) * 0x45d9f3b;

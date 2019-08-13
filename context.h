@@ -52,7 +52,7 @@ namespace fslic {
         int min_dist_memory_width; // memory width of aligned_min_dists;
     public:
         BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters) : H(H), W(W), K(K), image(image), clusters(clusters), S(sqrt(H * W / K)) {};
-        ~BaseContext();
+        virtual ~BaseContext();
     public:
         template <typename T>
         inline T fit_to_stride(T value) {
