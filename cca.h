@@ -15,6 +15,7 @@ namespace cca {
         label_no_t label;
         int16_t x;
         int16_t x_end;
+        RowSegment() {};
         RowSegment(label_no_t label, int16_t x, int16_t x_end) : label(label), x(x), x_end(x_end) {};
         int16_t get_length() const { return x_end - x; };
     };
@@ -37,8 +38,6 @@ namespace cca {
         const std::vector<RowSegment>& get_data() const { return data; };
         std::vector<RowSegment>& get_mutable_data() { return data; };
         const std::vector<int>& get_row_offsets() const { return row_offsets; };
-        void copy_to(label_no_t *labels);
-        void collapse();
     };
 
     void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
@@ -120,13 +119,7 @@ namespace cca {
         std::vector<int> label_area_tbl;
         RowSegmentSet segment_set;
     public:
-        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold) :
-            min_threshold(min_threshold), max_label_size(K) {
-            segment_set.set_from_2d_array(labels, H, W);
-        };
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold);
         void execute(label_no_t *out);
-    private:
-        void do_unlabel();
-        void do_relabel(label_no_t *out);
     };
 };

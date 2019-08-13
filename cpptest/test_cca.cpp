@@ -5,7 +5,7 @@
 #include <vector>
 #include <cca.h>
 
-TEST(RowSegmentSetTest, set_from_2d_array) { 
+TEST(RowSegmentSetTest, set_from_2d_array) {
     cca::label_no_t labels[] {
         0, 0, 0,
         1, 1, 2,
@@ -62,7 +62,7 @@ TEST(RowSegmentSetTest, set_from_2d_array) {
     EXPECT_EQ(data[7].x_end, 3);
 }
 
-TEST(RowSegmentSetTest, set_from_2d_array_empty_width) { 
+TEST(RowSegmentSetTest, set_from_2d_array_empty_width) {
     cca::label_no_t labels[] {};
     cca::RowSegmentSet rss;
     rss.set_from_2d_array(labels, 4, 0);
@@ -78,7 +78,7 @@ TEST(RowSegmentSetTest, set_from_2d_array_empty_width) {
     EXPECT_EQ(row_offsets[4], 0);
 }
 
-TEST(DisjointSet, assign_disjoint_set) { 
+TEST(DisjointSet, assign_disjoint_set) {
     cca::label_no_t labels[] {
         0, 0, 0,
         0, 1, 0,
@@ -115,7 +115,7 @@ TEST(DisjointSet, assign_disjoint_set) {
 }
 
 
-TEST(DisjointSet, assign_disjoint_set_2) { 
+TEST(DisjointSet, assign_disjoint_set_2) {
     cca::label_no_t labels[] {
         0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 5, 7,
         0, 1, 2, 2, 2, 3, 4, 4, 4, 4, 5, 6, 6,
@@ -130,7 +130,7 @@ TEST(DisjointSet, assign_disjoint_set_2) {
 }
 
 
-TEST(DisjointSet, estimate_component_area) { 
+TEST(DisjointSet, estimate_component_area) {
     cca::label_no_t labels[] {
         0, 0, 0,
         0, 1, 0,
@@ -152,7 +152,7 @@ TEST(DisjointSet, estimate_component_area) {
 }
 
 
-TEST(DisjointSet, unlabeled_adj) { 
+TEST(DisjointSet, unlabeled_adj) {
     cca::label_no_t u = 0xFFFF;
     cca::label_no_t labels[] {
         0, 0, 0, 0, 0,
@@ -213,4 +213,3 @@ TEST(ConnectivityEnforcer, time_benchmark) {
     cca::ConnectivityEnforcer ce(&labels[0], 480, 640, (640 + 480) / 144 + 1, 0);
     ce.execute(&labels[0]);
 }
-

@@ -8,6 +8,7 @@
 #include <omp.h>
 #endif
 
+#define FAST_SLIC_TIMER
 
 namespace fslic {
     template<typename DistType>
