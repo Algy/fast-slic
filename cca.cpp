@@ -155,6 +155,7 @@ namespace cca {
         }
     }
 
+    template <bool seam_concat>
     void merge_segment_rows(const RowSegmentSet &segment_set, DisjointSet &disjoint_set, int y) {
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
@@ -173,15 +174,16 @@ namespace cca {
             } else {
                 // if control flows through here, it means up and curr segment overlap
                 if (data[up_ix].label == data[curr_ix].label) {
-                    disjoint_set.merge(up_ix, curr_ix);
-                    /*
-                    if (curr_first_occurrence) {
-                        disjoint_set.add_single(up_ix, curr_ix);
-                        curr_first_occurrence = false;
-                    } else {
+                    if (seam_concat) {
                         disjoint_set.merge(up_ix, curr_ix);
+                    } else {
+                        if (curr_first_occurrence) {
+                            disjoint_set.add_single(up_ix, curr_ix);
+                            curr_first_occurrence = false;
+                        } else {
+                            disjoint_set.merge(up_ix, curr_ix);
+                        }
                     }
-                    */
                 }
                 if (data[curr_ix].x_end < data[up_ix].x_end) {
                     curr_ix++;
@@ -295,7 +297,7 @@ namespace cca {
                     seam = i;
                     continue;
                 }
-                merge_segment_rows(segment_set, dest, i);
+                merge_segment_rows<false>(segment_set, dest, i);
             }
 
             #pragma omp critical
@@ -303,7 +305,7 @@ namespace cca {
         }
         for (int i : seam_ys) {
             if (i <= 0) continue;
-            merge_segment_rows(segment_set, dest, i);
+            merge_segment_rows<true>(segment_set, dest, i);
         }
     }
 

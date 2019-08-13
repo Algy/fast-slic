@@ -42,7 +42,6 @@ namespace cca {
     };
 
     void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
-    void merge_segment_rows(const RowSegmentSet &segment_set, DisjointSet &cc_set, int y);
     void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
     void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<label_no_t> &dest);
 
