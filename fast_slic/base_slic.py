@@ -1,9 +1,18 @@
+from cfast_slic import SlicModel
+
 class BaseSlic(object):
-    def __init__(self, num_components, slic_model, compactness, min_size_factor, subsample_stride):
+    arch_name = "__TODO__"
+
+    def __init__(self,
+                 num_components=400,
+                 slic_model=None,
+                 compactness=20,
+                 min_size_factor=0.05,
+                 subsample_stride=3):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
         self.min_size_factor = min_size_factor
-        self._slic_model = slic_model and slic_model.copy() or self.make_slic_model(num_components or 100)
+        self._slic_model = slic_model and slic_model.copy() or SlicModel(num_components, self.arch_name)
         self._last_assignment = None
 
     @property
@@ -27,3 +36,6 @@ class BaseSlic(object):
 
     def make_slic_model(self, num_components):
         raise NotImplementedError
+
+class Slic(BaseSlic):
+    arch_name = 'standard'

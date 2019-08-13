@@ -1,7 +1,9 @@
 # cython: language_level=3, boundscheck=False
 
-cimport cfast_slic 
+cimport cfast_slic
 cimport numpy as np
+
+from cython.operator cimport dereference as deref
 
 import numpy as np
 
@@ -10,14 +12,22 @@ from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy, memset
 
 
-cdef class BaseSlicModel:
-    def __cinit__(self, int num_components):
-        if num_components >= 65535:
-            raise ValueError("num_components cannot exceed 65535")
+cdef class SlicModel:
+    def __cinit__(self, int num_components, arch_name="standard"):
+        arch_name = arch_name.encode("utf-8")
+        cdef cfast_slic.ContextBuilder builder
+        builder.set_arch(arch_name)
+        if not builder.is_supported_arch():
+            raise NotImplementedError("Unsupported arch " + repr(arch_name))
+
+        if num_components >= 65534:
+            raise ValueError("num_components cannot exceed 65534")
         elif num_components <= 0:
             raise ValueError("num_components should be a non-negative integer")
 
         self.num_components = num_components
+        self.arch_name = arch_name
+
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
         self.initialized = False
@@ -27,7 +37,6 @@ cdef class BaseSlicModel:
         memcpy(result._c_clusters, self._c_clusters, sizeof(cfast_slic.Cluster) * self.num_components)
         result.initialized = self.initialized
         return result
-
 
     cdef _get_clusters(self):
         cdef cfast_slic.Cluster* cluster
@@ -106,76 +115,61 @@ cdef class BaseSlicModel:
         if image.shape[2] != 3:
             raise ValueError("nchan != 3")
 
+        cdef cfast_slic.ContextBuilder builder
         cdef int H = image.shape[0]
         cdef int W = image.shape[1]
         cdef int K = self.num_components
+        cdef cfast_slic.Cluster* c_clusters = self._c_clusters
+        builder.set_arch(self.arch_name)
 
-        if H > 0 and W > 0:
-            if self._get_name() == "standard":
-                cfast_slic.fast_slic_initialize_clusters(H, W, K, &image[0, 0, 0], self._c_clusters)
-            elif self._get_name() == "avx2":
-                cfast_slic.fast_slic_initialize_clusters_avx2(H, W, K, &image[0, 0, 0], self._c_clusters)
-            elif self._get_name() == "neon":
-                cfast_slic.fast_slic_initialize_clusters_neon(H, W, K, &image[0, 0, 0], self._c_clusters)
-            else:
-                raise RuntimeError("Not reachable")
-        else:
-            raise ValueError("image cannot be empty")
+        cdef cfast_slic.Context *context = builder.build(
+            H,
+            W,
+            K,
+            &image[0, 0, 0],
+            c_clusters,
+        )
+        try:
+            with nogil:
+                context.initialize_clusters()
+        finally:
+            del context
         self.initialized = True
 
 
-    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride): 
+    cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride):
         if not self.initialized:
             raise RuntimeError("Slic model is not initialized")
         if image.shape[2] != 3:
             raise ValueError("nchan != 3")
+
+        cdef cfast_slic.ContextBuilder builder
         cdef int H = image.shape[0]
         cdef int W = image.shape[1]
         cdef int K = self.num_components
-        cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
         cdef cfast_slic.Cluster* c_clusters = self._c_clusters
+        builder.set_arch(self.arch_name)
 
-        if self._get_name() == 'standard':
-            cfast_slic.fast_slic_iterate(
-                H,
-                W,
-                K,
-                compactness,
-                min_size_factor,
-                subsample_stride,
-                max_iter,
-                &image[0, 0, 0],
-                c_clusters,
-                <uint16_t *>&assignments[0, 0]
-            )
-        elif self._get_name() == 'avx2':
-            cfast_slic.fast_slic_iterate_avx2(
-                H,
-                W,
-                K,
-                compactness,
-                min_size_factor,
-                subsample_stride,
-                max_iter,
-                &image[0, 0, 0],
-                c_clusters,
-                <uint16_t *>&assignments[0, 0]
-            )
-        elif self._get_name() == 'neon':
-            cfast_slic.fast_slic_iterate_neon(
-                H,
-                W,
-                K,
-                compactness,
-                min_size_factor,
-                subsample_stride,
-                max_iter,
-                &image[0, 0, 0],
-                c_clusters,
-                <uint16_t *>&assignments[0, 0]
-            )
-        else:
-            raise RuntimeError("Not reachable")
+        cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
+        cdef cfast_slic.Context *context = builder.build(
+            H,
+            W,
+            K,
+            &image[0, 0, 0],
+            c_clusters,
+        )
+        try:
+            context.compactness = compactness
+            context.min_size_factor = min_size_factor
+            context.subsample_stride_config = subsample_stride
+            with nogil:
+                context.initialize_state()
+                context.iterate(
+                    <uint16_t *>&assignments[0, 0],
+                    max_iter,
+                )
+        finally:
+            del context
         result = assignments.astype(np.int16)
         result[result == 0xFFFF] = -1
         return result
@@ -244,28 +238,9 @@ cdef class BaseSlicModel:
 
         return mask
 
-        
-
-
-
     def __dealloc__(self):
         if self._c_clusters is not NULL:
             free(self._c_clusters)
-
-    cpdef _get_name(self):
-        raise NotImplementedError
-
-cdef class SlicModel(BaseSlicModel):
-    cpdef _get_name(self):
-        return "standard"
-
-cdef class SlicModelAvx2(BaseSlicModel):
-    cpdef _get_name(self):
-        return "avx2"
-
-cdef class SlicModelNeon(BaseSlicModel):
-    cpdef _get_name(self):
-        return "neon"
 
 cdef class NodeConnectivity:
     @staticmethod
@@ -291,10 +266,19 @@ cdef class NodeConnectivity:
             cfast_slic.fast_slic_free_connectivity(self._c_connectivity)
 
 
-def slic_supports_arch(name):
-    if name == 'avx2':
-        return cfast_slic.fast_slic_supports_avx2() == 1
-    elif name == 'neon':
-        return cfast_slic.fast_slic_supports_neon() == 1
-    return False
+cpdef is_supported_arch(arch_name):
+    cdef cfast_slic.ContextBuilder builder
+    builder.set_arch(arch_name.encode("utf-8"))
+    return builder.is_supported_arch()
 
+cpdef get_supported_archs():
+    cdef cfast_slic.ContextBuilder builder
+    cdef const char **p = builder.supported_archs()
+    cdef const char *s
+    result = []
+    while True:
+        s = deref(p)
+        if not s: break
+        result.append(s.decode("utf-8"))
+        p += 1
+    return result

@@ -1,6 +1,7 @@
 # cython: language_level=3
 
 from libc.stdint cimport uint8_t, uint32_t, uint16_t, int16_t
+from libcpp cimport bool
 
 cdef extern from "fast-slic-common.h":
     ctypedef struct Cluster:
@@ -21,23 +22,45 @@ cdef extern from "fast-slic-common.h":
 
 
 cdef extern from "fast-slic.h":
-    void fast_slic_initialize_clusters(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
     Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint16_t *assignment) nogil
     Connectivity* fast_slic_knn_connectivity(int H, int W, int K, const Cluster* clusters, int num_neighbors) nogil
     void fast_slic_free_connectivity(Connectivity* conn) nogil
     void fast_slic_get_mask_density(int H, int W, int K, const Cluster* clusters, const uint16_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) nogil
     void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint16_t* assignment, const uint8_t *cluster_densities, uint8_t *result) nogil
 
-cdef extern from "fast-slic-avx2.h":
-    void fast_slic_initialize_clusters_avx2(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate_avx2(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
-    int fast_slic_supports_avx2() nogil
+cdef extern from "context.h" namespace "fslic":
+    cdef cppclass Context:
+        int16_t subsample_stride_config
+        int num_threads
+        float compactness
+        float min_size_factor
 
-cdef extern from "fast-slic-neon.h":
-    void fast_slic_initialize_clusters_neon(int H, int W, int K, const uint8_t* image, Cluster *clusters) nogil
-    void fast_slic_iterate_neon(int H, int W, int K, float compactness, float min_size_factor, uint8_t subsample_stride, int max_iter, const uint8_t* image, Cluster* clusters, uint16_t* assignment) nogil
-    int fast_slic_supports_neon() nogil
+        Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+        void initialize_clusters() nogil
+        void initialize_state() nogil
+        bool parallelism_supported() nogil
+        void iterate(uint16_t *assignment, int max_iter) nogil except +
+
+    cdef cppclass ContextRealDist:
+        int16_t subsample_stride_config
+        int num_threads
+        float compactness
+        float min_size_factor
+
+        Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+        void initialize_clusters() nogil
+        void initialize_state() nogil
+        bool parallelism_supported() nogil
+        void iterate(uint16_t *assignment, int max_iter) nogil except +
+
+    cdef cppclass ContextBuilder:
+        ContextBuilder()
+        ContextBuilder(const char* arch)
+        const char** supported_archs()
+        bool is_supported_arch()
+        const char* get_arch()
+        void set_arch(const char* arch)
+        Context* build(int H, int W, int K, const uint8_t* image, Cluster *clusters)
 
 
 cdef class NodeConnectivity:
@@ -48,10 +71,11 @@ cdef class NodeConnectivity:
     cdef create(Connectivity* conn)
 
 
-cdef class BaseSlicModel:
+cdef class SlicModel:
     cdef Cluster* _c_clusters
     cdef readonly int num_components
     cdef public object initialized
+    cdef public object arch_name
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)
@@ -62,15 +86,5 @@ cdef class BaseSlicModel:
     cdef _get_clusters(self)
     cdef _set_clusters(self, clusters)
 
-    cpdef _get_name(self)
-
-
-
-cdef class SlicModel(BaseSlicModel):
-    pass
-
-cdef class SlicModelAvx2(BaseSlicModel):
-    pass
-
-cdef class SlicModelNeon(BaseSlicModel):
-    pass
+cpdef is_supported_arch(arch_name)
+cpdef get_supported_archs()
