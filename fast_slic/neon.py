@@ -1,4 +1,4 @@
-from cfast_slic import SlicModelNeon, is_supported_arch
+from cfast_slic import is_supported_arch
 from .base_slic import BaseSlic
 
 if not is_supported_arch("arm/neon"):
