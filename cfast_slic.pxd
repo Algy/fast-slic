@@ -47,7 +47,7 @@ cdef extern from "context.h" namespace "fslic":
         float compactness
         float min_size_factor
 
-        Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+        ContextRealDist(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
         void initialize_state() nogil
         bool parallelism_supported() nogil
@@ -76,6 +76,7 @@ cdef class SlicModel:
     cdef readonly int num_components
     cdef public object initialized
     cdef public object arch_name
+    cdef public object real_dist
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

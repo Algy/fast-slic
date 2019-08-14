@@ -12,7 +12,7 @@ class BaseSlic(object):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
         self.min_size_factor = min_size_factor
-        self._slic_model = slic_model and slic_model.copy() or SlicModel(num_components, self.arch_name)
+        self._slic_model = slic_model and slic_model.copy() or self.make_slic_model(num_components)
         self._last_assignment = None
 
     @property
@@ -35,7 +35,15 @@ class BaseSlic(object):
         return self._slic_model.num_components
 
     def make_slic_model(self, num_components):
-        raise NotImplementedError
+        return SlicModel(num_components, self.arch_name)
 
 class Slic(BaseSlic):
     arch_name = 'standard'
+
+class SlicRealDist(BaseSlic):
+    arch_name = 'standard'
+
+    def make_slic_model(self, num_components):
+        model = SlicModel(num_components, self.arch_name)
+        model.real_dist = True
+        return model

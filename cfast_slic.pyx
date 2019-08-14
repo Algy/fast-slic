@@ -13,9 +13,10 @@ from libc.string cimport memcpy, memset
 
 
 cdef class SlicModel:
-    def __cinit__(self, int num_components, arch_name="standard"):
+    def __cinit__(self, int num_components, arch_name="standard", real_dist=False):
         arch_name = arch_name.encode("utf-8")
         cdef cfast_slic.ContextBuilder builder
+
         builder.set_arch(arch_name)
         if not builder.is_supported_arch():
             raise NotImplementedError("Unsupported arch " + repr(arch_name))
@@ -27,6 +28,7 @@ cdef class SlicModel:
 
         self.num_components = num_components
         self.arch_name = arch_name
+        self.real_dist = real_dist
 
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
@@ -151,25 +153,49 @@ cdef class SlicModel:
         builder.set_arch(self.arch_name)
 
         cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
-        cdef cfast_slic.Context *context = builder.build(
-            H,
-            W,
-            K,
-            &image[0, 0, 0],
-            c_clusters,
-        )
-        try:
-            context.compactness = compactness
-            context.min_size_factor = min_size_factor
-            context.subsample_stride_config = subsample_stride
-            with nogil:
-                context.initialize_state()
-                context.iterate(
-                    <uint16_t *>&assignments[0, 0],
-                    max_iter,
-                )
-        finally:
-            del context
+        cdef cfast_slic.Context *context
+        cdef cfast_slic.ContextRealDist *context_real_dist
+        
+        if not self.real_dist:
+            context = builder.build(
+                H,
+                W,
+                K,
+                &image[0, 0, 0],
+                c_clusters,
+            )
+            try:
+                context.compactness = compactness
+                context.min_size_factor = min_size_factor
+                context.subsample_stride_config = subsample_stride
+                with nogil:
+                    context.initialize_state()
+                    context.iterate(
+                        <uint16_t *>&assignments[0, 0],
+                        max_iter,
+                    )
+            finally:
+                del context
+        else:
+            context_real_dist = new cfast_slic.ContextRealDist(
+                H,
+                W,
+                K,
+                &image[0, 0, 0],
+                c_clusters,
+            )
+            try:
+                context_real_dist.compactness = compactness
+                context_real_dist.min_size_factor = min_size_factor
+                context_real_dist.subsample_stride_config = subsample_stride
+                with nogil:
+                    context_real_dist.initialize_state()
+                    context_real_dist.iterate(
+                        <uint16_t *>&assignments[0, 0],
+                        max_iter,
+                    )
+            finally:
+                del context_real_dist
         result = assignments.astype(np.int16)
         result[result == 0xFFFF] = -1
         return result
