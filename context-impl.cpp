@@ -40,7 +40,7 @@ namespace fslic {
     void ContextBuilder::set_arch(const char* arch) { impl->arch = arch; };
 
     bool ContextBuilder::is_supported_arch() {
-        for (const char **p = archtbl; p; p++) {
+        for (const char **p = archtbl; *p; p++) {
             if (impl->arch == *p) return true;
         }
         return false;
