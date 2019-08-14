@@ -38,11 +38,12 @@ namespace cca {
         const std::vector<RowSegment>& get_data() const { return data; };
         std::vector<RowSegment>& get_mutable_data() { return data; };
         const std::vector<int>& get_row_offsets() const { return row_offsets; };
+        void collapse();
     };
 
     void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
     void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
-    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<label_no_t> &dest);
+    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const std::vector<int> &component_area, std::vector<label_no_t> &dest);
 
     class DisjointSet {
     public:
@@ -69,6 +70,10 @@ namespace cca {
             tree_node_t c = size++;
             parents.push_back(c);
             return c;
+        }
+        inline void clear() {
+            parents.clear();
+            size = 0;
         }
 
         inline int find_root(tree_node_t node) {

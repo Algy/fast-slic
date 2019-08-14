@@ -167,8 +167,11 @@ TEST(DisjointSet, unlabeled_adj) {
     cca::assign_disjoint_set(rss, disjoint_set);
     std::unique_ptr<cca::ComponentSet> cc_set { disjoint_set.flatten() };
 
+    std::vector<int> area;
+    cca::estimate_component_area(rss, *cc_set, area);
+
     std::vector<cca::label_no_t> label_subs;
-    cca::unlabeled_adj(rss, *cc_set, label_subs);
+    cca::unlabeled_adj(rss, *cc_set, area, label_subs);
     EXPECT_EQ(label_subs[2], 0);
 }
 

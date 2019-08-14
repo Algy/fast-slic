@@ -5,7 +5,10 @@
 #include <string>
 #include <chrono>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <limits>
+#include <list>
 #include <ctime>
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -20,100 +23,47 @@ namespace cca {
     private:
         const RowSegmentSet &segment_set;
         const ComponentSet &cc_set;
+        const int* component_area; // CompoenntNo -> int
         std::vector<int> largest_adj_area; // ComponentNo -> area
         std::vector<label_no_t> largest_adj_label; // ComponentNo -> Label
-        std::vector<int> component_area;
-        std::vector< std::set<component_no_t> > undef_neighbors; // ComponentNo -> std::set<ComponentNo>
     public:
-        AdjMerger(const RowSegmentSet &segment_set, const ComponentSet &cc_set) :
-                segment_set(segment_set), cc_set(cc_set),
-                largest_adj_area(cc_set.get_num_components(), 0),
-                largest_adj_label(cc_set.get_num_components(), 0xFFFF),
-                undef_neighbors(cc_set.get_num_components()) {
-            estimate_component_area(segment_set, cc_set, component_area); // ComponentNo -> int (area)
-        };
+        int size() { return largest_adj_area.size(); };
+        AdjMerger(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const int* component_area) :
+                segment_set(segment_set), cc_set(cc_set), component_area(component_area),
+                largest_adj_area(cc_set.get_num_components()),
+                largest_adj_label(cc_set.get_num_components(), 0xFFFF) {};
         void update(segment_no_t target_ix, segment_no_t adj_ix, label_no_t label) {
             component_no_t target = cc_set.component_assignment[target_ix];
             component_no_t adj = cc_set.component_assignment[adj_ix];
-            if (largest_adj_area[target] < component_area[adj]) {
-                largest_adj_area[target] = component_area[adj];
+
+            int &target_largest_area = largest_adj_area[target];
+            int adj_area = component_area[adj];
+            if (target_largest_area < adj_area) {
+                target_largest_area = adj_area;
                 largest_adj_label[target] = label;
             }
         };
 
-        void add_undef_neighbor(segment_no_t target_ix, segment_no_t adj_ix) {
-            component_no_t target = cc_set.component_assignment[target_ix];
-            component_no_t adj = cc_set.component_assignment[adj_ix];
-            if (target != adj) {
-                undef_neighbors[target].insert(adj);
-                undef_neighbors[adj].insert(target);
-            }
-        }
-        void concat(const AdjMerger &rhs) {
+        void concat(const std::vector< std::unique_ptr<AdjMerger> >& local_mergers) {
+            int num_components = cc_set.get_num_components();
             #pragma omp parallel
             {
                 #pragma omp for
-                for (int i = 0; i < (int)largest_adj_area.size(); i++) {
-                    if (largest_adj_area[i] < rhs.largest_adj_area[i]) {
-                        largest_adj_area[i] = rhs.largest_adj_area[i];
-                        largest_adj_label[i] = rhs.largest_adj_label[i];
+                for (int i = 0; i < num_components; i++) {
+                    int max_area = std::numeric_limits<int>::min();
+                    label_no_t max_label = 0xFFFF;
+                    for (const auto &local_merger : local_mergers) {
+                        int curr_area = local_merger->largest_adj_area[i];
+                        if (max_area < curr_area) {
+                            max_area = curr_area;
+                            max_label = local_merger->largest_adj_label[i];
+                        }
                     }
-                }
-                #pragma omp for
-                for (int i = 0; i < (int)undef_neighbors.size(); i++) {
-                    undef_neighbors[i].insert(rhs.undef_neighbors[i].begin(), rhs.undef_neighbors[i].end());
+                    largest_adj_area[i] = max_area;
+                    largest_adj_label[i] = max_label;
                 }
             }
         };
-
-        void group_neighbors() {
-            int num_components = cc_set.get_num_components();
-            std::vector< std::vector<component_no_t> > groups;
-
-            #pragma omp parallel
-            {
-                std::vector<component_no_t> stack;
-                std::vector<bool> visited(num_components, false);
-
-                #pragma omp for
-                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                    if (undef_neighbors[component_no].empty()) continue;
-                    if (visited[component_no]) continue;
-                    stack.push_back(component_no);
-
-                    std::vector<component_no_t> group;
-                    while (!stack.empty()) {
-                        component_no_t curr_component = stack.back();
-                        stack.pop_back();
-                        if (visited[curr_component]) continue;
-                        visited[curr_component] = true;
-                        group.push_back(curr_component);
-                        for (component_no_t neighbor_no : undef_neighbors[curr_component]) {
-                            stack.push_back(neighbor_no);
-                        }
-                    }
-
-                    #pragma omp critical
-                    groups.push_back(std::move(group));
-                }
-            }
-            for (int i = 0; i < (int)groups.size(); i++) {
-                const std::vector<component_no_t> &group = groups[i];
-                int max_area = std::numeric_limits<int>::min();
-                label_no_t max_label = 0xFFFF;
-                for (component_no_t c : group) {
-                    if (max_area < largest_adj_area[c]) {
-                        max_area = largest_adj_area[c];
-                        max_label = largest_adj_label[c];
-                    }
-                }
-                for (component_no_t c : group) {
-                    largest_adj_area[c] = max_area;
-                    largest_adj_label[c] = max_label;
-                }
-            }
-        }
-
 
         void copy_back(std::vector<label_no_t> &dest) {
             dest = largest_adj_label;
@@ -173,7 +123,25 @@ namespace cca {
         }
     }
 
-    template <bool seam_concat>
+    void RowSegmentSet::collapse() {
+        int H = get_height();
+        #pragma omp parallel for
+        for (int i = 0; i < H; i++) {
+            int off_end = row_offsets[i + 1];
+            for (int off = row_offsets[i]; off < off_end;) {
+                label_no_t label_hd = data[off].label;
+                int off_st = off++;
+                while (off < off_end && data[off].label == label_hd) off++;
+
+                if (off_st == off - 1) continue;
+
+                auto last_x_end = data[off - 1].x_end;
+                data[off_st].x_end = last_x_end;
+                for (int t = off_st + 1; t < off; t++) data[t].x = data[t].x_end = last_x_end;
+            }
+        }
+    }
+
     void merge_segment_rows(const RowSegmentSet &segment_set, DisjointSet &disjoint_set, int y) {
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
@@ -181,31 +149,19 @@ namespace cca {
         const int up_ix_begin = row_offsets[y - 1], up_ix_end = row_offsets[y];
         const int curr_ix_begin = row_offsets[y], curr_ix_end = row_offsets[y + 1];
         int up_ix = up_ix_begin, curr_ix = curr_ix_begin;
-        bool curr_first_occurrence = true;
 
         while (up_ix < up_ix_end && curr_ix < curr_ix_end) {
             if (data[up_ix].x_end <= data[curr_ix].x) {
                 up_ix++;
             } else if (data[curr_ix].x_end <= data[up_ix].x) {
                 curr_ix++;
-                curr_first_occurrence = true;
             } else {
                 // if control flows through here, it means up and curr segment overlap
                 if (data[up_ix].label == data[curr_ix].label) {
-                    if (seam_concat) {
-                        disjoint_set.merge(up_ix, curr_ix);
-                    } else {
-                        if (curr_first_occurrence) {
-                            disjoint_set.add_single(up_ix, curr_ix);
-                            curr_first_occurrence = false;
-                        } else {
-                            disjoint_set.merge(up_ix, curr_ix);
-                        }
-                    }
+                    disjoint_set.merge(up_ix, curr_ix);
                 }
                 if (data[curr_ix].x_end < data[up_ix].x_end) {
                     curr_ix++;
-                    curr_first_occurrence = true;
                 } else {
                     up_ix++;
                 }
@@ -235,8 +191,8 @@ namespace cca {
     }
 
 
-    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<label_no_t> &dest) {
-        auto t01 = Clock::now();
+    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const std::vector<int> &component_area, std::vector<label_no_t> &dest) {
+        // auto t01 = Clock::now();
         int num_components = cc_set.get_num_components();
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
@@ -244,10 +200,10 @@ namespace cca {
 
         std::vector< std::unique_ptr<AdjMerger> > local_mergers;
         // left to right
-        auto t0 = Clock::now();
+        // auto t0 = Clock::now();
         #pragma omp parallel
         {
-            AdjMerger *local_merger = new AdjMerger(segment_set, cc_set);
+            AdjMerger *local_merger = new AdjMerger(segment_set, cc_set, &component_area[0]);
             #pragma omp critical
             local_mergers.push_back(std::unique_ptr<AdjMerger>(local_merger));
             #pragma omp barrier
@@ -264,8 +220,6 @@ namespace cca {
                         local_merger->update(off - 1, off, curr_seg.label);
                     } else if (left_seg.label != 0xFFFF && curr_seg.label == 0xFFFF) {
                         local_merger->update(off, off - 1, left_seg.label);
-                    } else if (left_seg.label == 0xFFFF && curr_seg.label == 0xFFFF) {
-                        local_merger->add_undef_neighbor(off - 1, off);
                     }
                 }
             }
@@ -288,8 +242,6 @@ namespace cca {
                             local_merger->update(curr_ix, up_ix, up_seg.label);
                         } else if (up_seg.label == 0xFFFF && curr_seg.label != 0xFFFF) {
                             local_merger->update(up_ix, curr_ix, curr_seg.label);
-                        } else if (up_seg.label == 0xFFFF && curr_seg.label == 0xFFFF) {
-                            local_merger->add_undef_neighbor(up_ix, curr_ix);
                         }
                         if (data[curr_ix].x_end < data[up_ix].x_end) {
                             curr_ix++;
@@ -300,24 +252,27 @@ namespace cca {
                 }
             }
         }
-        auto t1 = Clock::now();
+        // // auto t1 = Clock::now();
 
-        AdjMerger merger(segment_set, cc_set);
-        for (const auto &local_merger : local_mergers) {
-            merger.concat(*local_merger);
-        }
-        auto t2 = Clock::now();
-        merger.group_neighbors();
-        auto t3 = Clock::now();
-        merger.copy_back(dest);
-        auto t4 = Clock::now();
+        std::unique_ptr<AdjMerger> merger { new AdjMerger(segment_set, cc_set, &component_area[0]) };
+        merger->concat(local_mergers);
 
-        std::cerr << "    adj.pre: " << micro(t0 - t01) << "us\n";
-        std::cerr << "    adj.adjcalc: " << micro(t1 - t0) << "us\n";
-        std::cerr << "    adj.mergecalc: " << micro(t2 - t1) << "us\n";
-        std::cerr << "    adj.group: " << micro(t3 - t2) << "us\n";
-        std::cerr << "    adj.copyback: " << micro(t4 - t3) << "us\n";
-        std::cerr << "    adj.__all__: " << micro(t4 - t01) << "us\n";
+        // auto t2 = Clock::now();
+        // auto t3 = Clock::now();
+        merger->copy_back(dest);
+        // auto t4 = Clock::now();
+        // std::cerr << "    adj(__size__): " << merger->size() << " / " << num_components  << "\n";
+        merger = nullptr;
+        local_mergers.clear();
+        // auto t5 = Clock::now();
+
+        // std::cerr << "    adj.pre: " << micro(t0 - t01) << "us\n";
+        // std::cerr << "    adj.adjcalc: " << micro(t1 - t0) << "us\n";
+        // std::cerr << "    adj.mergecalc: " << micro(t2 - t1) << "us\n";
+        // std::cerr << "    adj.group: " << micro(t3 - t2) << "us\n";
+        // std::cerr << "    adj.copyback: " << micro(t4 - t3) << "us\n";
+        // std::cerr << "    adj._del__: " << micro(t5 - t4) << "us\n";
+        // std::cerr << "    adj.__all__: " << micro(t5 - t01) << "us\n";
     }
 
     void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest) {
@@ -333,7 +288,7 @@ namespace cca {
                     seam = i;
                     continue;
                 }
-                merge_segment_rows<false>(segment_set, dest, i);
+                merge_segment_rows(segment_set, dest, i);
             }
 
             #pragma omp critical
@@ -341,7 +296,7 @@ namespace cca {
         }
         for (int i : seam_ys) {
             if (i <= 0) continue;
-            merge_segment_rows<true>(segment_set, dest, i);
+            merge_segment_rows(segment_set, dest, i);
         }
     }
 
@@ -401,30 +356,32 @@ namespace cca {
 
     ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold)
             : min_threshold(min_threshold), max_label_size(K) {
-        auto t0 = Clock::now();
+        // auto t0 = Clock::now();
         segment_set.set_from_2d_array(labels, H, W);
-        auto t1 = Clock::now();
-        std::cerr << "  row segmentation: " << micro(t1 -t0) << "us" << std::endl;
+        // auto t1 = Clock::now();
+        // std::cerr << "  row segmentation: " << micro(t1 -t0) << "us" << std::endl;
     }
 
     void ConnectivityEnforcer::execute(label_no_t *out) {
-        auto t0 = Clock::now();
+        // auto t0 = Clock::now();
         DisjointSet disjoint_set;
         assign_disjoint_set(segment_set, disjoint_set);
 
-        auto t1 = Clock::now();
+        // auto t1 = Clock::now();
         std::unique_ptr<ComponentSet> cc_set { disjoint_set.flatten() };
         std::vector<int> component_area;
         estimate_component_area(segment_set, *cc_set, component_area); // ComponentNo -> int (area)
-        auto t3 = Clock::now();
+        // auto t3 = Clock::now();
 
         std::vector<component_no_t> largest_component(max_label_size, -1); // Label -> ComponentNo
         std::vector<int> largest_area(max_label_size, 0); // Label -> int
 
+        int W = segment_set.get_width(), H = segment_set.get_height();
         #pragma omp parallel
         {
             int num_components = cc_set->get_num_components();
             auto &data = segment_set.get_mutable_data();
+            const auto &row_offsets = segment_set.get_row_offsets();
             std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
             std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
             #pragma omp for
@@ -448,18 +405,27 @@ namespace cca {
             }
             #pragma omp barrier
 
+
             #pragma omp for
-            for (int ix = 0; ix < (int)data.size(); ix++) {
+            for (int ix = 0; ix < data.size(); ix++) {
                 if (largest_component[data[ix].label] != cc_set->component_assignment[ix]) {
                     data[ix].label = 0xFFFF;
                 }
             }
         }
+        segment_set.collapse();
 
-        auto t4 = Clock::now();
+        // auto t4 = Clock::now();
         std::vector<label_no_t> adj; // ComponentNo -> LabelNo
-        unlabeled_adj(segment_set, *cc_set, adj);
-        auto t5 = Clock::now();
+        disjoint_set.clear();
+        component_area.clear();
+
+        assign_disjoint_set(segment_set, disjoint_set);
+        cc_set = disjoint_set.flatten();
+        estimate_component_area(segment_set, *cc_set, component_area);
+        unlabeled_adj(segment_set, *cc_set, component_area, adj);
+
+        // auto t5 = Clock::now();
         int width = segment_set.get_width(), height = segment_set.get_height();
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
@@ -477,12 +443,12 @@ namespace cca {
                 }
             }
         }
-        auto t6 = Clock::now();
+        // auto t6 = Clock::now();
 
-        std::cerr << "  disjoint: " << micro(t1 -t0) << "us" << std::endl;
-        std::cerr << "  flatten: " << micro(t3 - t1) << "us" << std::endl;
-        std::cerr << "  unlabel_comp: " << micro(t4 - t3) << "us" << std::endl;
-        std::cerr << "  adj: " << micro(t5 - t4) << "us" << std::endl;
-        std::cerr << "  writeback_comp: " << micro(t6 - t5) << "us" << std::endl;
+        // std::cerr << "  disjoint: " << micro(t1 -t0) << "us" << std::endl;
+        // std::cerr << "  flatten: " << micro(t3 - t1) << "us" << std::endl;
+        // std::cerr << "  unlabel_comp: " << micro(t4 - t3) << "us" << std::endl;
+        // std::cerr << "  adj: " << micro(t5 - t4) << "us" << std::endl;
+        // std::cerr << "  writeback_comp: " << micro(t6 - t5) << "us" << std::endl;
     }
 };
