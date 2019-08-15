@@ -20,9 +20,6 @@ namespace fslic {
         if (spatial_dist_patch) {
             simd_helper::free_aligned_array(spatial_dist_patch);
         }
-        if (spatial_normalize_cache) {
-            delete [] spatial_normalize_cache;
-        }
         if (aligned_quad_image_base) {
             simd_helper::free_aligned_array(aligned_quad_image_base);
         }
@@ -44,46 +41,21 @@ namespace fslic {
 
     template <typename DistType>
     void BaseContext<DistType>::prepare_spatial() {
-        if (spatial_normalize_cache) delete [] spatial_normalize_cache;
-        spatial_normalize_cache = new DistType[2 * S + 2];
-        for (int x = 0; x < 2 * S + 2; x++) {
-            DistType val = (DistType)(compactness * (float)x / (float)S);
-            spatial_normalize_cache[x] = val;
-        }
-
         patch_height = patch_virtual_width = 2 * S + 1;
         patch_memory_width = simd_helper::align_to_next(patch_virtual_width);
 
         if (spatial_dist_patch) simd_helper::free_aligned_array(spatial_dist_patch);
         spatial_dist_patch = simd_helper::alloc_aligned_array<DistType>(patch_height * patch_memory_width);
-        uint16_t row_first_manhattan = 2 * S;
-        // first half lines
-        for (int i = 0; i < S; i++) {
-            uint16_t current_manhattan = row_first_manhattan--;
-            // first half columns
-            for (int j = 0; j < S; j++) {
-                DistType val = spatial_normalize_cache[current_manhattan--];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-            // half columns next to the first columns
-            for (int j = S; j <= 2 * S; j++) {
-                DistType val = spatial_normalize_cache[current_manhattan++];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-        }
+        set_spatial_patch();
+    }
 
-        // next half lines
-        for (int i = S; i <= 2 * S; i++) {
-            uint16_t current_manhattan = row_first_manhattan++;
-            // first half columns
-            for (int j = 0; j < S; j++) {
-                DistType val = spatial_normalize_cache[current_manhattan--];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
-            }
-            // half columns next to the first columns
-            for (int j = S; j <= 2 * S; j++) {
-                DistType val = spatial_normalize_cache[current_manhattan++];
-                spatial_dist_patch[i * patch_memory_width + j] = val;
+    template<typename DistType>
+    void BaseContext<DistType>::set_spatial_patch() {
+        float coef = 1.0f / ((float)S / compactness);
+        int16_t S_2 = 2 * S;
+        for (int16_t i = 0; i <= S_2; i++) {
+            for (int16_t j = 0; j <= S_2; j++) {
+                spatial_dist_patch[i * patch_memory_width + j] = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
             }
         }
     }
@@ -355,6 +327,7 @@ namespace fslic {
         delete [] dist_row;
     }
 
+
     template<typename DistType>
     void BaseContext<DistType>::update() {
         std::vector<int32_t> num_cluster_members(K, 0);
@@ -407,6 +380,58 @@ namespace fslic {
             cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
             cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
             cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
+        }
+    }
+
+    void ContextRealDistL2::assign_clusters(const Cluster** target_clusters, int size) {
+        float* dist_row = new float[2 * S + 1];
+
+        const int16_t S_2 = 2 * S;
+
+        for (int cidx = 0; cidx < size; cidx++) {
+            const Cluster* cluster = target_clusters[cidx];
+            int16_t cluster_y = cluster->y, cluster_x = cluster->x;
+            int16_t cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
+            uint16_t cluster_no = cluster->number;
+
+            for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
+                if (!valid_subsample_row(i)) continue;
+                const uint8_t *image_row = &aligned_quad_image[quad_image_memory_width * i + 4 * (cluster_x - S)];
+                uint16_t *assignment_row = &aligned_assignment[assignment_memory_width * i + (cluster_x - S)];
+                float *min_dist_row = &aligned_min_dists[min_dist_memory_width * i + (cluster_x - S)];
+                const float *patch_row = &spatial_dist_patch[patch_memory_width * i_off];
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    dist_row[j_off] = patch_row[j_off];
+                }
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    float dr = image_row[4 * j_off] - cluster_r,
+                        dg = image_row[4 * j_off + 1] - cluster_g,
+                        db = image_row[4 * j_off + 2] - cluster_b;
+                    float color_dist = dr*dr + dg*dg + db*db;
+                    dist_row[j_off] += color_dist;
+                }
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    if (min_dist_row[j_off] > dist_row[j_off]) {
+                        min_dist_row[j_off] = dist_row[j_off];
+                        assignment_row[j_off] = cluster_no;
+                    }
+                }
+            }
+        }
+        delete [] dist_row;
+    }
+
+    void ContextRealDistL2::set_spatial_patch() {
+        float coef = 1.0f / ((float)S / compactness);
+        int16_t S_2 = 2 * S;
+        for (int16_t i = 0; i <= S_2; i++) {
+            for (int16_t j = 0; j <= S_2; j++) {
+                float di = coef * (i - S), dj = coef * (j - S);
+                spatial_dist_patch[i * patch_memory_width + j] = di * di + dj * dj;
+            }
         }
     }
 

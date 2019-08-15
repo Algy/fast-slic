@@ -39,7 +39,6 @@ namespace fslic {
         uint16_t patch_virtual_width;
         uint16_t patch_height;
 
-        DistType* spatial_normalize_cache = nullptr;
     protected:
         uint8_t* aligned_quad_image_base = nullptr;
         uint8_t* aligned_quad_image = nullptr; // copied image
@@ -76,12 +75,21 @@ namespace fslic {
         void assign();
         void update();
     protected:
+        virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
     };
 
     class ContextRealDist : public BaseContext<float> {
     public:
         using BaseContext<float>::BaseContext;
+    };
+
+    class ContextRealDistL2 : public ContextRealDist {
+    public:
+        using ContextRealDist::ContextRealDist;
+    protected:
+        virtual void set_spatial_patch();
+        virtual void assign_clusters(const Cluster **target_clusters, int size);
     };
 
     class Context : public BaseContext<uint16_t> {
