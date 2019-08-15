@@ -270,6 +270,12 @@ namespace fslic {
             }
         }
 
+        // safeguard
+        for (int k = 0; k < K; k++) {
+            clusters[k].x = clamp<int16_t>(clusters[k].x, 0, W - 1);
+            clusters[k].y = clamp<int16_t>(clusters[k].y, 0, H - 1);
+        }
+
         int cell_W = ceil_int(W, 2 * S), cell_H = ceil_int(H, 2 * S);
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
