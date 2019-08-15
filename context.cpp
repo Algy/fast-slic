@@ -47,7 +47,7 @@ namespace fslic {
         if (spatial_normalize_cache) delete [] spatial_normalize_cache;
         spatial_normalize_cache = new DistType[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
-            DistType val = (DistType)(compactness * (float)x / (float)S * (1 << color_shift));
+            DistType val = (DistType)(compactness * (float)x / (float)S);
             spatial_normalize_cache[x] = val;
         }
 
@@ -337,9 +337,9 @@ namespace fslic {
                 }
 
                 for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    int16_t r = image_row[4 * j_off] << color_shift,
-                        g = image_row[4 * j_off + 1] << color_shift,
-                        b = image_row[4 * j_off + 2] << color_shift;
+                    int16_t r = image_row[4 * j_off],
+                        g = image_row[4 * j_off + 1],
+                        b = image_row[4 * j_off + 2];
                     DistType color_dist = fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b);
                     dist_row[j_off] += color_dist;
                 }
@@ -375,9 +375,9 @@ namespace fslic {
                     local_num_cluster_members[cluster_no]++;
                     local_acc_vec[5 * cluster_no + 0] += i;
                     local_acc_vec[5 * cluster_no + 1] += j;
-                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index] << color_shift;
-                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1] << color_shift;
-                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2] << color_shift;
+                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
+                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
+                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
                 }
             }
 

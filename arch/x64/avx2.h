@@ -4,7 +4,7 @@
 
 
 inline void get_assignment_value_vec(
-        const Cluster* cluster, int color_shift,
+        const Cluster* cluster,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
         __m128i cluster_number_vec, __m256i cluster_color_vec,
@@ -19,9 +19,7 @@ inline void get_assignment_value_vec(
     __m128i spatial_dist_vec = _mm_load_si128((__m128i *)spatial_dist_patch_row);
 
     __m256i image_segment = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)img_quad_row));
-    image_segment = _mm256_slli_epi16(image_segment, color_shift);
     __m256i image_segment_2 = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(img_quad_row + 16)));
-    image_segment_2 = _mm256_slli_epi16(image_segment_2, color_shift);
 
     // [R1, G1, B1, A1, R2, G2, B2, A2, R3, G3, B3, A3, R3, G3, B3, A3]
     __m256i abd_segment = _mm256_abs_epi16(_mm256_subs_epi16(image_segment, cluster_color_vec));
@@ -121,7 +119,6 @@ namespace fslic {
             const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
             get_assignment_value_vec( \
                 cluster, \
-                color_shift, \
                 img_quad_row, \
                 spatial_dist_patch_row, \
                 min_dist_row, \

@@ -25,7 +25,6 @@ namespace fslic {
         int num_threads = 0;
         float compactness = 20;
         float min_size_factor = 0.1;
-        int color_shift = 4;
     protected:
         int H, W, K;
         int16_t S;

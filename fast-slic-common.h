@@ -11,11 +11,11 @@ typedef struct Cluster {
     // 7 bytes
     uint16_t y;
     uint16_t x;
-    uint16_t r;
-    uint16_t g;
-    uint16_t b;
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
     // 1 byte dummy data
-    uint16_t reserved[1];
+    uint8_t reserved[1];
 
     cluster_no_t number; // 2 bytes
     uint8_t is_active;

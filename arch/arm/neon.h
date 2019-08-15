@@ -3,7 +3,7 @@
 #include "../../context.h"
 
 inline void get_assignment_value_vec(
-        const Cluster* cluster, int16x8_t color_shift_vec,
+        const Cluster* cluster,
         const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
         uint16x8_t cluster_number_vec, uint16x8_t cluster_color_vec,
@@ -11,14 +11,10 @@ inline void get_assignment_value_vec(
         ) {
     uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row);
 
-    uint16x8_t image_segment_1 = vmovl_u8(vld1_u8(img_quad_row), );
+    uint16x8_t image_segment_1 = vmovl_u8(vld1_u8(img_quad_row));
     uint16x8_t image_segment_2 = vmovl_u8(vld1_u8(img_quad_row + 8));
     uint16x8_t image_segment_3 = vmovl_u8(vld1_u8(img_quad_row + 16));
     uint16x8_t image_segment_4 = vmovl_u8(vld1_u8(img_quad_row + 24));
-    image_segment_1 = vshlq_u16(image_segment_1, color_shift_vec);
-    image_segment_2 = vshlq_u16(image_segment_2, color_shift_vec);
-    image_segment_3 = vshlq_u16(image_segment_3, color_shift_vec);
-    image_segment_4 = vshlq_u16(image_segment_4, color_shift_vec);
 
     uint16x8_t abs_segment_1 = vabdq_u8(image_segment_1, cluster_color_vec);
     uint16x8_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
