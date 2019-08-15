@@ -34,6 +34,7 @@ cdef extern from "context.h" namespace "fslic":
         int num_threads
         float compactness
         float min_size_factor
+        bool convert_to_lab
 
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -46,6 +47,7 @@ cdef extern from "context.h" namespace "fslic":
         int num_threads
         float compactness
         float min_size_factor
+        bool convert_to_lab
 
         ContextRealDist(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -81,6 +83,7 @@ cdef class SlicModel:
     cdef public object arch_name
     cdef public object real_dist
     cdef public object real_dist_l2
+    cdef public object convert_to_lab
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

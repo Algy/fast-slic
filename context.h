@@ -25,6 +25,7 @@ namespace fslic {
         int num_threads = 0;
         float compactness = 20;
         float min_size_factor = 0.1;
+        bool convert_to_lab = false;
     protected:
         int H, W, K;
         int16_t S;

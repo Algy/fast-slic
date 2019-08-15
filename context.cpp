@@ -1,6 +1,7 @@
 #include "context.h"
 #include "simd-helper.hpp"
 #include "cca.h"
+#include "cielab.h"
 
 #include <limits>
 
@@ -183,6 +184,10 @@ namespace fslic {
             auto t1 = Clock::now();
             std::cerr << "Copy Image&initialize label map: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << "us\n";
 #           endif
+        }
+
+        if (convert_to_lab) {
+            rgb_to_cielab(aligned_quad_image, aligned_quad_image, quad_image_memory_width * H, true);
         }
 
         // Pad image and assignment
