@@ -379,8 +379,8 @@ namespace cca {
         int W = segment_set.get_width(), H = segment_set.get_height();
         #pragma omp parallel
         {
-            int num_components = cc_set->get_num_components();
             auto &data = segment_set.get_mutable_data();
+            int num_components = cc_set->get_num_components();
             const auto &row_offsets = segment_set.get_row_offsets();
             std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
             std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
@@ -409,6 +409,15 @@ namespace cca {
             #pragma omp for
             for (int ix = 0; ix < data.size(); ix++) {
                 if (largest_component[data[ix].label] != cc_set->component_assignment[ix]) {
+                    data[ix].label = 0xFFFF;
+                }
+            }
+        }
+        {
+            auto &data = segment_set.get_mutable_data();
+            #pragma omp parallel for
+            for (int ix = 0; ix < data.size(); ix++) {
+                if (component_area[cc_set->component_assignment[ix]] < min_threshold) {
                     data[ix].label = 0xFFFF;
                 }
             }
@@ -443,6 +452,7 @@ namespace cca {
                 }
             }
         }
+
         // auto t6 = Clock::now();
 
         // std::cerr << "  disjoint: " << micro(t1 -t0) << "us" << std::endl;

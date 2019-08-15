@@ -8,6 +8,11 @@
 #include <omp.h>
 #endif
 
+#ifndef _OPENMP
+#define omp_get_num_threads() 1
+#endif
+
+// #define FAST_SLIC_TIMER
 
 namespace fslic {
     template<typename DistType>
@@ -42,7 +47,7 @@ namespace fslic {
         if (spatial_normalize_cache) delete [] spatial_normalize_cache;
         spatial_normalize_cache = new DistType[2 * S + 2];
         for (int x = 0; x < 2 * S + 2; x++) {
-            DistType val = (DistType)(compactness * (float)x / (float)S);
+            DistType val = (DistType)(compactness * (float)x / (float)S * (1 << color_shift));
             spatial_normalize_cache[x] = val;
         }
 
@@ -278,11 +283,12 @@ namespace fslic {
             clusters[k].y = clamp<int16_t>(clusters[k].y, 0, H - 1);
         }
 
-        int cell_W = ceil_int(W, 2 * S), cell_H = ceil_int(H, 2 * S);
+        int T = 2 * S;
+        int cell_W = ceil_int(W, T), cell_H = ceil_int(H, T);
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
             int y = clusters[k].y, x = clusters[k].x;
-            grid[cell_W * (y / (S * 2)) + (x / (S * 2))].push_back(&clusters[k]);
+            grid[cell_W * (y / T) + (x / T)].push_back(&clusters[k]);
         }
 
         for (int phase = 0; phase < 4; phase++) {
@@ -331,7 +337,9 @@ namespace fslic {
                 }
 
                 for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    int16_t r = image_row[4 * j_off], g = image_row[4 * j_off + 1], b = image_row[4 * j_off + 2];
+                    int16_t r = image_row[4 * j_off] << color_shift,
+                        g = image_row[4 * j_off + 1] << color_shift,
+                        b = image_row[4 * j_off + 2] << color_shift;
                     DistType color_dist = fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b);
                     dist_row[j_off] += color_dist;
                 }
@@ -367,9 +375,9 @@ namespace fslic {
                     local_num_cluster_members[cluster_no]++;
                     local_acc_vec[5 * cluster_no + 0] += i;
                     local_acc_vec[5 * cluster_no + 1] += j;
-                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
-                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
-                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
+                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index] << color_shift;
+                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1] << color_shift;
+                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2] << color_shift;
                 }
             }
 
