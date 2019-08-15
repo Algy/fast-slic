@@ -8,6 +8,7 @@
 #include <omp.h>
 #endif
 
+
 namespace fslic {
     template<typename DistType>
     BaseContext<DistType>::~BaseContext() {
@@ -234,6 +235,7 @@ namespace fslic {
             std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
 #           endif
         }
+        // assign();
 
         {
 #           ifdef FAST_SLIC_TIMER
@@ -373,10 +375,10 @@ namespace fslic {
 
             #pragma omp critical
             {
+                for (int i = 0; i < (int)local_acc_vec.size(); i++) {
+                    cluster_acc_vec[i] += local_acc_vec[i];
+                }
                 for (int k = 0; k < K; k++) {
-                    for (int dim = 0; dim < 5; dim++) {
-                        cluster_acc_vec[5 * k + dim] += local_acc_vec[5 * k + dim];
-                    }
                     num_cluster_members[k] += local_num_cluster_members[k];
                 }
             }
