@@ -301,29 +301,42 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::assign_clusters(const Cluster** target_clusters, int size) {
+        DistType* __restrict dist_row = new DistType[2 * S + 1];
+
+        const int16_t S_2 = 2 * S;
+
         for (int cidx = 0; cidx < size; cidx++) {
             const Cluster* cluster = target_clusters[cidx];
             int16_t cluster_y = cluster->y, cluster_x = cluster->x;
             int16_t cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
             uint16_t cluster_no = cluster->number;
-            for (int16_t i_off = 0, i = cluster_y - S; i_off <= 2 * S; i_off++, i++) {
+
+            for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const DistType *spatial_dist_row = &spatial_dist_patch[patch_memory_width * i_off];
-                uint16_t *assignment_row = &aligned_assignment[assignment_memory_width * i];
-                DistType *min_dist_row = &aligned_min_dists[min_dist_memory_width * i];
-                const uint8_t *image_row = &aligned_quad_image[quad_image_memory_width * i];
-                for (int16_t j_off = 0, j = cluster_x - S; j_off <= 2 * S; j_off++, j++) {
-                    int16_t r = image_row[4 * j], g = image_row[4 * j + 1], b = image_row[4 * j + 2];
+                const uint8_t __restrict *image_row = &aligned_quad_image[quad_image_memory_width * i + 4 * (cluster_x - S)];
+                uint16_t __restrict  *assignment_row = &aligned_assignment[assignment_memory_width * i + (cluster_x - S)];
+                DistType __restrict  *min_dist_row = &aligned_min_dists[min_dist_memory_width * i + (cluster_x - S)];
+                const DistType __restrict *patch_row = &spatial_dist_patch[patch_memory_width * i_off];
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    dist_row[j_off] = patch_row[j_off];
+                }
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    int16_t r = image_row[4 * j_off], g = image_row[4 * j_off + 1], b = image_row[4 * j_off + 2];
                     DistType color_dist = fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b);
-                    DistType spatial_dist = spatial_dist_row[j_off];
-                    DistType dist = color_dist + spatial_dist;
-                    if (min_dist_row[j] > dist) {
-                        min_dist_row[j] = dist;
-                        assignment_row[j] = cluster_no;
+                    dist_row[j_off] += color_dist;
+                }
+
+                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                    if (min_dist_row[j_off] > dist_row[j_off]) {
+                        min_dist_row[j_off] = dist_row[j_off];
+                        assignment_row[j_off] = cluster_no;
                     }
                 }
             }
         }
+        delete [] dist_row;
     }
 
     template<typename DistType>
