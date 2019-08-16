@@ -170,6 +170,7 @@ namespace fslic {
         auto tt = Clock::now();
         std::cerr << "before_iteration " << std::chrono::duration_cast<std::chrono::microseconds>(tt-ts).count() << "us\n";
 #       endif
+        preemptive_grid.initialize(preemptive, preemptive_thres);
 
         for (int i = 0; i < max_iter; i++) {
 #           ifdef FAST_SLIC_TIMER
@@ -179,7 +180,9 @@ namespace fslic {
 #           ifdef FAST_SLIC_TIMER
             auto t2 = Clock::now();
 #           endif
+            preemptive_grid.set_old_assignment(this->assignment.get_row(0), this->assignment.get_memory_width());
             update();
+            preemptive_grid.set_new_assignment(this->assignment.get_row(0), this->assignment.get_memory_width());
 #           ifdef FAST_SLIC_TIMER
             auto t21 = Clock::now();
 #           endif
@@ -238,6 +241,7 @@ namespace fslic {
         int cell_W = ceil_int(W, T), cell_H = ceil_int(H, T);
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
+            if (!preemptive_grid.is_active_cluster(clusters[k])) continue;
             int y = clusters[k].y, x = clusters[k].x;
             grid[cell_W * (y / T) + (x / T)].push_back(&clusters[k]);
         }
@@ -329,6 +333,10 @@ namespace fslic {
     void BaseContext<DistType>::update() {
         std::vector<int32_t> num_cluster_members(K, 0);
         std::vector<int32_t> cluster_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
+        std::vector<bool> cluster_updatable(K);
+        for (int k = 0; k < K; k++) {
+            cluster_updatable[k] = preemptive_grid.is_updatable_cluster(clusters[k]);
+        }
 
         #pragma omp parallel
         {
@@ -361,6 +369,7 @@ namespace fslic {
 
 
         for (int k = 0; k < K; k++) {
+            if (!cluster_updatable[k]) continue;
             int32_t num_current_members = num_cluster_members[k];
             Cluster *cluster = &clusters[k];
             cluster->num_members = num_current_members;

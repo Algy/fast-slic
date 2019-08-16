@@ -172,6 +172,10 @@ namespace simd_helper {
         int get_height() const {
             return height;
         }
+
+        int get_memory_width() const {
+            return memory_width;
+        }
     };
 }
 

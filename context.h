@@ -14,6 +14,7 @@
 #include <iomanip>
 #include "simd-helper.hpp"
 #include "fast-slic-common.h"
+#include "preemptive.h"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -27,14 +28,18 @@ namespace fslic {
         float min_size_factor = 0.1;
         bool convert_to_lab = false;
         bool strict_cca = true;
+
+        bool preemptive = false;
+        float preemptive_thres = 0.01;
     protected:
         int H, W, K;
-        int16_t S;
-        Cluster* clusters;
         const uint8_t* image;
+        Cluster* clusters;
+        int16_t S;
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
+        PreemptiveGrid preemptive_grid;
     protected:
         simd_helper::AlignedArray<uint8_t> quad_image;
         simd_helper::AlignedArray<uint16_t> assignment;
@@ -46,7 +51,8 @@ namespace fslic {
               quad_image(H, 4 * W, S, S, 4 * S, 4 * S),
               assignment(H, W, S, S, S, S),
               min_dists(H, W, S, S, S, S),
-              spatial_dist_patch(2 * S + 1, 2 * S + 1) {};
+              spatial_dist_patch(2 * S + 1, 2 * S + 1),
+              preemptive_grid(H, W, S) {};
         virtual ~BaseContext();
     public:
         template <typename T>
