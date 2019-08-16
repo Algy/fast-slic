@@ -191,18 +191,10 @@ namespace fslic {
         }
 
         // Pad image and assignment
-        subsample_rem = 1;
-        subsample_stride = subsample_stride_config;
+        subsample_rem = 0;
+        subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
 
         for (int i = 0; i < max_iter; i++) {
-            if (i == max_iter - 1) {
-                subsample_stride = 1;
-                subsample_rem = 0;
-            } else {
-                subsample_rem++;
-                subsample_rem %= subsample_stride;
-            }
-
 #           ifdef FAST_SLIC_TIMER
             auto t1 = Clock::now();
 #           endif
@@ -216,8 +208,11 @@ namespace fslic {
             std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
             std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
 #           endif
+            subsample_rem = (subsample_rem + 1) % subsample_stride;
         }
-        // assign();
+        subsample_stride = 1;
+        subsample_rem = 0;
+        assign();
 
         {
 #           ifdef FAST_SLIC_TIMER
