@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdint>
+#include <vector>
 /*
 def get_xyz_nonlin_tbl(a):
     v = a / 255.
@@ -11,7 +12,7 @@ def get_xyz_nonlin_tbl(a):
 >> list(map(f, range(0, 256)))
 */
 
-static float  _xyz_nonlin_tbl[256] = {
+static float  _srgb_gamma_tbl[256] = {
     0.0,
     0.0003035269835488375,
     0.000607053967097675,
@@ -270,48 +271,79 @@ static float  _xyz_nonlin_tbl[256] = {
     1.0
 };
 
+#define srgb_shift 13
+#define srgb_max (1 << srgb_shift)
+#define lab_shift 16
+
+class FastCIELabCvt {
+public:
+    float C[9] = {
+        0.43395633, 0.37621531, 0.18984309,
+        0.2126729 , 0.7151522 , 0.072175  ,
+        0.01775782, 0.1094756 , 0.87283638
+    };
+    int Cb[9];
+public:
+    std::vector<int> srgb_gamma_tbl;
+    std::vector<int> lab_tbl;
+    FastCIELabCvt() : srgb_gamma_tbl(256), lab_tbl(srgb_max + 1) {
+        for (int i = 0; i < 256; i++)
+            srgb_gamma_tbl[i] = (int)(_srgb_gamma_tbl[i] * srgb_max);
+        for (int i = 0; i < 9; i++)
+            Cb[i] = (int)roundf(C[i] * (1 << lab_shift));
+        for (int i = 0; i <= srgb_max; i++) {
+            lab_tbl[i] = roundf(lab_nonlin((float)i / srgb_max) * srgb_max);
+        }
+    }
+
+    inline void convert(uint8_t R, uint8_t G, uint8_t B, uint8_t& l, uint8_t& a, uint8_t& b) {
+        int sr = srgb_gamma_tbl[R], sg = srgb_gamma_tbl[G], sb = srgb_gamma_tbl[B];
+
+        int xr = (Cb[0] * sr + Cb[1] * sg + Cb[2] * sb) >> lab_shift;
+        int yr = (Cb[3] * sr + Cb[4] * sg + Cb[5] * sb) >> lab_shift;
+        int zr = (Cb[6] * sr + Cb[7] * sg + Cb[8] * sb) >> lab_shift;
+
+        int fx = lab_tbl[xr], fy = lab_tbl[yr], fz = lab_tbl[zr];
+
+        int ciel = 116 * fy - (16 << srgb_shift);
+        int ciea = 500 * (fx - fy) + (128 << srgb_shift); // to positive integer
+        int cieb = 200 * (fy - fz) + (128 << srgb_shift); // to positive integer
+
+        l = (uint8_t)((unsigned)ciel >> srgb_shift);
+        a = (uint8_t)((unsigned)ciea >> srgb_shift);
+        b = (uint8_t)((unsigned)cieb >> srgb_shift);
+    }
+
+private:
+    float lab_nonlin(float v) {
+        float lo = 7.787f * v + 0.137931f;
+        float hi = powf(v, 0.333333f);
+        return (v > 0.008856f)? hi : lo;
+    }
+};
+
+FastCIELabCvt fast_cielab_cvt;
+
 static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
     #pragma omp parallel for if(parallel)
-    for (int s = 0; s < size; s += 32) {
-        const uint8_t *row = &aligned_quad_image[s];
-        uint8_t* out_row = &out[s];
+    for (int s = 0; s < size; s += 4) {
+        fast_cielab_cvt.convert(
+            aligned_quad_image[s],
+            aligned_quad_image[s+1],
+            aligned_quad_image[s+2],
+            out[s],
+            out[s+1],
+            out[s+2]
+        );
+    }
+}
 
-        float r[8] = {
-            (float)_xyz_nonlin_tbl[row[0]],
-            (float)_xyz_nonlin_tbl[row[4]],
-            (float)_xyz_nonlin_tbl[row[8]],
-            (float)_xyz_nonlin_tbl[row[12]],
-            (float)_xyz_nonlin_tbl[row[16]],
-            (float)_xyz_nonlin_tbl[row[20]],
-            (float)_xyz_nonlin_tbl[row[24]],
-            (float)_xyz_nonlin_tbl[row[28]]
-        };
-        float g[8] = {
-            (float)_xyz_nonlin_tbl[row[1]],
-            (float)_xyz_nonlin_tbl[row[5]],
-            (float)_xyz_nonlin_tbl[row[9]],
-            (float)_xyz_nonlin_tbl[row[13]],
-            (float)_xyz_nonlin_tbl[row[17]],
-            (float)_xyz_nonlin_tbl[row[21]],
-            (float)_xyz_nonlin_tbl[row[25]],
-            (float)_xyz_nonlin_tbl[row[29]]
-        };
-        float b[8] = {
-            (float)_xyz_nonlin_tbl[row[2]],
-            (float)_xyz_nonlin_tbl[row[6]],
-            (float)_xyz_nonlin_tbl[row[10]],
-            (float)_xyz_nonlin_tbl[row[14]],
-            (float)_xyz_nonlin_tbl[row[18]],
-            (float)_xyz_nonlin_tbl[row[22]],
-            (float)_xyz_nonlin_tbl[row[26]],
-            (float)_xyz_nonlin_tbl[row[30]]
-        };
-        float xr[8], yr[8], zr[8];
-        float fx_lo[8], fy_lo[8], fz_lo[8];
-        float fx_hi[8], fy_hi[8], fz_hi[8];
-        float fx[8], fy[8], fz[8];
-        float ciel[8], ciea[8], cieb[8];
-
+static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
+    #pragma omp parallel for if(parallel)
+    for (int s = 0; s < size; s += 4) {
+        float r = _srgb_gamma_tbl[aligned_quad_image[s]],
+            g = _srgb_gamma_tbl[aligned_quad_image[s+1]],
+            b = _srgb_gamma_tbl[aligned_quad_image[s+2]];
         /*
         X = r*0.4124530 + g*0.3575761 + b*0.1804375;
         Y = r*0.2126729 + g*0.7151522 + b*0.0721750;
@@ -328,41 +360,25 @@ static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int s
          [0.01775782, 0.1094756 , 0.87283638]])
         */
 
-        for (int i = 0; i < 8; i++) {
-            xr[i] = 0.43395633f * r[i] + 0.37621531f * g[i] + 0.18984309f * b[i];
-            yr[i] = 0.2126729f  * r[i] + 0.7151522f  * g[i] + 0.072175f   * b[i];
-            zr[i] = 0.01775782f * r[i] + 0.1094756f  * g[i] + 0.87283638f * b[i];
-        }
+        float xr = 0.43395633f * r + 0.37621531f * g + 0.18984309f * b;
+        float yr = 0.2126729f  * r + 0.7151522f  * g + 0.072175f * b;
+        float zr = 0.01775782f * r + 0.1094756f  * g + 0.87283638f * b;
+        float fx_lo = 7.787f * xr + 0.137931f;
+        float fy_lo = 7.787f * yr + 0.137931f;
+        float fz_lo = 7.787f * zr + 0.137931f;
+        float fx_hi = powf(xr, 0.333333f);
+        float fy_hi = powf(yr, 0.333333f);
+        float fz_hi = powf(zr, 0.333333f);
+        float fx = (xr > 0.008856f)? fx_hi : fx_lo;
+        float fy = (yr > 0.008856f)? fy_hi : fy_lo;
+        float fz = (zr > 0.008856f)? fz_hi : fz_lo;
 
-        for (int i = 0; i < 8; i++) {
-            fx_lo[i] = 7.787f * xr[i] + 0.137931f;
-            fy_lo[i] = 7.787f * yr[i] + 0.137931f;
-            fz_lo[i] = 7.787f * zr[i] + 0.137931f;
-        }
+        float ciel = 116.0f * fy - 16.0f;
+        float ciea = 500.0f * (fx - fy) + 128.0f; // to positive integer
+        float cieb = 200.0f * (fy - fz) + 128.0f; // to positive integer
 
-        for (int i = 0; i < 8; i++) {
-            fx_hi[i] = powf(xr[i], 0.333333f);
-            fy_hi[i] = powf(yr[i], 0.333333f);
-            fz_hi[i] = powf(zr[i], 0.333333f);
-        }
-
-        for (int i = 0; i < 8; i++) {
-            fx[i] = (xr[i] > 0.008856f)? fx_hi[i] : fx_lo[i];
-            fy[i] = (yr[i] > 0.008856f)? fy_hi[i] : fy_lo[i];
-            fz[i] = (zr[i] > 0.008856f)? fz_hi[i] : fz_lo[i];
-        }
-
-        for (int i = 0; i < 8; i++) {
-            ciel[i] = 116.0f * fy[i] - 16.0f;
-            ciea[i] = 500.0f * (fx[i] - fy[i]) + 128.0f; // to positive integer
-            cieb[i] = 200.0f * (fy[i] - fz[i]) + 128.0f; // to positive integer
-        }
-
-        for (int i = 0; i < 8; i++) {
-            out_row[4 * i] = (uint8_t)ciel[i];
-            out_row[4 * i + 1] = (uint8_t)ciea[i];
-            out_row[4 * i + 2] = (uint8_t)cieb[i];
-            out_row[4 * i + 3] = (uint8_t)0;
-        }
+        out[s] = (uint8_t)ciel;
+        out[s+1] = (uint8_t)ciea;
+        out[s+2] = (uint8_t)cieb;
     }
 }
