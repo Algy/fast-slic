@@ -1,6 +1,7 @@
 #ifndef _SIMD_HELPER_HPP
 #define _SIMD_HELPER_HPP
 #include <cstdlib>
+#include <algorithm>
 
 
 #ifdef _MSC_VER
@@ -58,7 +59,7 @@
 
 #include <memory>
 
-namespace simd_helper { 
+namespace simd_helper {
     template <typename T>
     static T* alloc_aligned_array(std::size_t count) {
         std::size_t size = count * sizeof(T);
@@ -87,6 +88,91 @@ namespace simd_helper {
         return (x + (Alignment - 1)) & (~(Alignment - 1));
     }
 
+
+    template <typename T>
+    class AlignedArray {
+    private:
+        T* base_arr;
+        T* arr;
+        int height;
+        int width;
+        int padding_t;
+        int padding_b;
+        int padding_l;
+        int padding_r;
+        int outer_height;
+        int outer_width;
+        int memory_width;
+    public:
+        AlignedArray(int height, int width,
+                    int padding_t = 0, int padding_b = 0, int padding_l = 0, int padding_r = 0)
+                : height(height), width(width),
+                padding_t(padding_t),
+                padding_b(padding_b),
+                padding_l(padding_l),
+                padding_r(padding_r),
+                outer_height(height + padding_t + padding_b),
+                outer_width(width + padding_l + padding_r) {
+            memory_width = simd_helper::align_to_next(outer_width);
+            base_arr = alloc_aligned_array<T>(outer_height * memory_width);
+            arr = base_arr + padding_t * memory_width + padding_l;
+        };
+
+        AlignedArray(const AlignedArray<T> &rhs) {
+            width = rhs.width;
+            height = rhs.height;
+            padding_t = rhs.padding_t;
+            padding_b = rhs.padding_b;
+            padding_l = rhs.padding_l;
+            padding_r = rhs.padding_r;
+            outer_height = rhs.outer_height;
+            outer_width = rhs.outer_width;
+            memory_width = rhs.memory_width;
+            base_arr = alloc_aligned_array<T>(outer_height * memory_width);
+            std::copy(rhs.base_arr, rhs.base_arr + outer_height * memory_width, base_arr);
+            arr = base_arr + padding_t * memory_width + padding_l;
+        }
+
+        AlignedArray& operator=(const AlignedArray<T> &rhs) {
+            free_aligned_array(base_arr);
+            width = rhs.width;
+            height = rhs.height;
+            padding_t = rhs.padding_t;
+            padding_b = rhs.padding_b;
+            padding_l = rhs.padding_l;
+            padding_r = rhs.padding_r;
+            outer_height = rhs.outer_height;
+            outer_width = rhs.outer_width;
+            memory_width = rhs.memory_width;
+            base_arr = alloc_aligned_array<T>(outer_height * memory_width);
+            std::copy(rhs.base_arr, rhs.base_arr + outer_height * memory_width, base_arr);
+            arr = base_arr + padding_t * memory_width + padding_l;
+        };
+
+        ~AlignedArray() {
+            free_aligned_array(base_arr);
+        };
+
+        inline T* get_row(int i, int j = 0) const {
+            return &arr[i * memory_width + j];
+        }
+
+        inline T& get(int i, int j) const {
+            return arr[i * memory_width + j];
+        }
+
+        int contiguous_memory_size() const {
+            return memory_width * height;
+        }
+
+        int get_width() const {
+            return width;
+        }
+
+        int get_height() const {
+            return height;
+        }
+    };
 }
 
 

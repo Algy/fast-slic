@@ -87,10 +87,12 @@ namespace fslic {
         virtual void assign_clusters(const Cluster **target_clusters, int size) {
             __m128i order_swap_mask = _mm_set_epi32(3, 1, 2, 0); // [0, 1, 2, 3]
 
+            int16_t patch_height = spatial_dist_patch.get_height();
             for (int cidx = 0; cidx < size; cidx++)  {
                 const Cluster *cluster = target_clusters[cidx];
                 uint16_t cluster_number = cluster->number;
-                const uint16_t patch_virtual_width_multiple8 = patch_virtual_width & 0xFFF8;
+                const uint16_t patch_width = spatial_dist_patch.get_width();
+                const uint16_t patch_width_multiple8 = patch_width & 0xFFF8;
 
                 const int16_t cluster_y = cluster->y, cluster_x = cluster->x;
                 const int16_t y_lo = cluster_y - S, x_lo = cluster_x - S;
@@ -102,14 +104,14 @@ namespace fslic {
                 __m128i cluster_number_vec = _mm_set1_epi16(cluster_number);
 
                 for (int16_t i = fit_to_stride(y_lo) - y_lo; i < patch_height; i += subsample_stride) {
-                    const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
+                    const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch.get_row(i);
         #ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
                     assert((long long)spatial_dist_patch_base_row % 32 == 0);
         #endif
                     // not aligned
-                    const uint8_t *img_quad_base_row = aligned_quad_image + quad_image_memory_width * (y_lo + i) + 4 * x_lo;
-                    uint16_t* assignment_base_row = aligned_assignment + (i + y_lo) * assignment_memory_width + x_lo;
-                    uint16_t* min_dist_base_row = aligned_min_dists + (i + y_lo) * min_dist_memory_width + x_lo;
+                    const uint8_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
+                    uint16_t* assignment_base_row = assignment.get_row(i + y_lo, x_lo);
+                    uint16_t* min_dist_base_row = min_dists.get_row(i + y_lo, x_lo);
 
         #define ASSIGNMENT_VALUE_GETTER_BODY \
             __m128i new_assignment__narrow, new_min_dist__narrow; \
@@ -133,20 +135,20 @@ namespace fslic {
                     // 32(batch size) / 4(rgba quad) = stride 8
                     #pragma unroll(4)
                     #pragma GCC unroll(4)
-                    for (int j = 0; j < patch_virtual_width_multiple8; j += 8) {
+                    for (int j = 0; j < patch_width_multiple8; j += 8) {
                         ASSIGNMENT_VALUE_GETTER_BODY
                         _mm_storeu_si128((__m128i*)min_dist_row, new_min_dist__narrow);
                         _mm_storeu_si128((__m128i*)assignment_row, new_assignment__narrow);
                     }
 
-                    if (0 < patch_virtual_width - patch_virtual_width_multiple8) {
+                    if (0 < patch_width - patch_width_multiple8) {
                         uint16_t new_min_dists[8], new_assignments[8];
-                        int j = patch_virtual_width_multiple8;
+                        int j = patch_width_multiple8;
                         ASSIGNMENT_VALUE_GETTER_BODY
                         _mm_storeu_si128((__m128i*)new_min_dists, new_min_dist__narrow);
                         _mm_storeu_si128((__m128i*)new_assignments, new_assignment__narrow);
 
-                        for (int delta = 0; delta < patch_virtual_width - patch_virtual_width_multiple8; delta++) {
+                        for (int delta = 0; delta < patch_width - patch_width_multiple8; delta++) {
                             min_dist_row[delta] = new_min_dists[delta];
                             assignment_row[delta] = new_assignments[delta];
                         }

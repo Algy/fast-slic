@@ -34,24 +34,18 @@ namespace fslic {
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
-
-        DistType* spatial_dist_patch = nullptr;
-        uint16_t patch_memory_width;
-        uint16_t patch_virtual_width;
-        uint16_t patch_height;
-
     protected:
-        uint8_t* aligned_quad_image_base = nullptr;
-        uint8_t* aligned_quad_image = nullptr; // copied image
-        uint16_t quad_image_memory_width;
-        uint16_t* aligned_assignment_base = nullptr;
-        uint16_t* aligned_assignment = nullptr;
-        DistType* aligned_min_dists_base = nullptr;
-        DistType* aligned_min_dists = nullptr;
-        int assignment_memory_width; // memory width of aligned_assignment
-        int min_dist_memory_width; // memory width of aligned_min_dists;
+        simd_helper::AlignedArray<uint8_t> quad_image;
+        simd_helper::AlignedArray<uint16_t> assignment;
+        simd_helper::AlignedArray<DistType> min_dists;
+        simd_helper::AlignedArray<DistType> spatial_dist_patch;
     public:
-        BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters) : H(H), W(W), K(K), image(image), clusters(clusters), S(sqrt(H * W / K)) {};
+        BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters)
+            : H(H), W(W), K(K), image(image), clusters(clusters), S(sqrt(H * W / K)),
+              quad_image(H, 4 * W, S, S, 4 * S, 4 * S),
+              assignment(H, W, S, S, S, S),
+              min_dists(H, W, S, S, S, S),
+              spatial_dist_patch(2 * S + 1, 2 * S + 1) {};
         virtual ~BaseContext();
     public:
         template <typename T>

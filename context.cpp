@@ -1,5 +1,4 @@
 #include "context.h"
-#include "simd-helper.hpp"
 #include "cca.h"
 #include "cielab.h"
 
@@ -18,18 +17,6 @@
 namespace fslic {
     template<typename DistType>
     BaseContext<DistType>::~BaseContext() {
-        if (spatial_dist_patch) {
-            simd_helper::free_aligned_array(spatial_dist_patch);
-        }
-        if (aligned_quad_image_base) {
-            simd_helper::free_aligned_array(aligned_quad_image_base);
-        }
-        if (aligned_assignment_base) {
-            simd_helper::free_aligned_array(aligned_assignment_base);
-        }
-        if (aligned_min_dists_base) {
-            simd_helper::free_aligned_array(aligned_min_dists_base);
-        }
     }
 
     template<typename DistType>
@@ -42,11 +29,6 @@ namespace fslic {
 
     template <typename DistType>
     void BaseContext<DistType>::prepare_spatial() {
-        patch_height = patch_virtual_width = 2 * S + 1;
-        patch_memory_width = simd_helper::align_to_next(patch_virtual_width);
-
-        if (spatial_dist_patch) simd_helper::free_aligned_array(spatial_dist_patch);
-        spatial_dist_patch = simd_helper::alloc_aligned_array<DistType>(patch_height * patch_memory_width);
         set_spatial_patch();
     }
 
@@ -56,7 +38,7 @@ namespace fslic {
         int16_t S_2 = 2 * S;
         for (int16_t i = 0; i <= S_2; i++) {
             for (int16_t j = 0; j <= S_2; j++) {
-                spatial_dist_patch[i * patch_memory_width + j] = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
+                spatial_dist_patch.get(i, j) = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
             }
         }
     }
@@ -127,18 +109,6 @@ namespace fslic {
 #       ifdef FAST_SLIC_TIMER
         auto t0 = Clock::now();
 #       endif
-        quad_image_memory_width = simd_helper::align_to_next((W + 2 * S) * 4);
-        aligned_quad_image_base = simd_helper::alloc_aligned_array<uint8_t>((H + 2 * S) * quad_image_memory_width);
-        aligned_quad_image = &aligned_quad_image_base[quad_image_memory_width * S + S * 4];
-
-        assignment_memory_width = simd_helper::align_to_next(W + 2 * S);
-        aligned_assignment_base = simd_helper::alloc_aligned_array<uint16_t>((H + 2 * S) * assignment_memory_width);
-        aligned_assignment = &aligned_assignment_base[S * assignment_memory_width + S];
-
-        min_dist_memory_width = assignment_memory_width;
-        aligned_min_dists_base = simd_helper::alloc_aligned_array<DistType>((H + 2 * S) * min_dist_memory_width);
-        aligned_min_dists = &aligned_min_dists_base[S * min_dist_memory_width + S];
-
         prepare_spatial();
 #       ifdef FAST_SLIC_TIMER
         auto t1 = Clock::now();
@@ -167,7 +137,7 @@ namespace fslic {
                 for (int i = 0; i < H; i++) {
                     for (int j = 0; j < W; j++) {
                         for (int k = 0; k < 3; k++) {
-                            aligned_quad_image_base[(i + S) * quad_image_memory_width + 4 * (j + S) + k] = image[i * W * 3 + 3 * j + k];
+                            quad_image.get(i, 4 * j + k) = image[i * W * 3 + 3 * j + k];
                         }
                     }
                 }
@@ -175,7 +145,7 @@ namespace fslic {
                 #pragma omp for
                 for (int i = 0; i < H; i++) {
                     for (int j = 0; j < W; j++) {
-                        aligned_assignment[assignment_memory_width * i + j] = 0xFFFF;
+                        this->assignment.get(i, j) = 0xFFFF;
                     }
                 }
             }
@@ -187,7 +157,11 @@ namespace fslic {
         }
 
         if (convert_to_lab) {
-            rgb_to_cielab(aligned_quad_image, aligned_quad_image, quad_image_memory_width * H, true);
+            rgb_to_cielab(
+                &quad_image.get(0, 0), &quad_image.get(0, 0),
+                quad_image.contiguous_memory_size(),
+                true
+            );
         }
 
         subsample_rem = 0;
@@ -221,7 +195,7 @@ namespace fslic {
             #pragma omp parallel for
             for (int i = 0; i < H; i++) {
                 for (int j = 0; j < W; j++) {
-                    assignment[W * i + j] = aligned_assignment[assignment_memory_width * i + j];
+                    assignment[W * i + j] = this->assignment.get(i, j);
                 }
             }
 #           ifdef FAST_SLIC_TIMER
@@ -244,7 +218,7 @@ namespace fslic {
         #pragma omp parallel for
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
-                aligned_min_dists[min_dist_memory_width * i + j] = std::numeric_limits<DistType>::max();
+                min_dists.get(i, j) = std::numeric_limits<DistType>::max();
             }
         }
 
@@ -309,12 +283,12 @@ namespace fslic {
             int16_t cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
             uint16_t cluster_no = cluster->number;
 
-            for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
+            for (int i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint8_t __restrict *image_row = &aligned_quad_image[quad_image_memory_width * i + 4 * (cluster_x - S)];
-                uint16_t __restrict  *assignment_row = &aligned_assignment[assignment_memory_width * i + (cluster_x - S)];
-                DistType __restrict  *min_dist_row = &aligned_min_dists[min_dist_memory_width * i + (cluster_x - S)];
-                const DistType __restrict *patch_row = &spatial_dist_patch[patch_memory_width * i_off];
+                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                uint16_t* __restrict  assignment_row = assignment.get_row(i, cluster_x - S);
+                DistType* __restrict min_dist_row = min_dists.get_row(i, cluster_x - S);
+                const DistType* __restrict patch_row = spatial_dist_patch.get_row(i_off);
 
                 for (int16_t j_off = 0; j_off <= S_2; j_off++) {
                     dist_row[j_off] = patch_row[j_off];
@@ -352,17 +326,14 @@ namespace fslic {
             #pragma omp for
             for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
                 for (int j = 0; j < W; j++) {
-                    int img_base_index = quad_image_memory_width * i + 4 * j;
-                    int assignment_index = assignment_memory_width * i + j;
-
-                    uint16_t cluster_no = aligned_assignment[assignment_index];
+                    uint16_t cluster_no = assignment.get(i, j);
                     if (cluster_no == 0xFFFF) continue;
                     local_num_cluster_members[cluster_no]++;
                     local_acc_vec[5 * cluster_no + 0] += i;
                     local_acc_vec[5 * cluster_no + 1] += j;
-                    local_acc_vec[5 * cluster_no + 2] += aligned_quad_image[img_base_index];
-                    local_acc_vec[5 * cluster_no + 3] += aligned_quad_image[img_base_index + 1];
-                    local_acc_vec[5 * cluster_no + 4] += aligned_quad_image[img_base_index + 2];
+                    local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
+                    local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
+                    local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
                 }
             }
 
@@ -408,10 +379,10 @@ namespace fslic {
 
             for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint8_t *image_row = &aligned_quad_image[quad_image_memory_width * i + 4 * (cluster_x - S)];
-                uint16_t *assignment_row = &aligned_assignment[assignment_memory_width * i + (cluster_x - S)];
-                float *min_dist_row = &aligned_min_dists[min_dist_memory_width * i + (cluster_x - S)];
-                const float *patch_row = &spatial_dist_patch[patch_memory_width * i_off];
+                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                uint16_t* __restrict assignment_row = assignment.get_row(i, cluster_x - S);
+                float* __restrict  min_dist_row = min_dists.get_row(i, cluster_x - S);
+                const float* __restrict patch_row = spatial_dist_patch.get_row(i_off);
 
                 for (int16_t j_off = 0; j_off <= S_2; j_off++) {
                     dist_row[j_off] = patch_row[j_off];
@@ -442,7 +413,7 @@ namespace fslic {
         for (int16_t i = 0; i <= S_2; i++) {
             for (int16_t j = 0; j <= S_2; j++) {
                 float di = coef * (i - S), dj = coef * (j - S);
-                spatial_dist_patch[i * patch_memory_width + j] = di * di + dj * dj;
+                spatial_dist_patch.get(i, j) = di * di + dj * dj;
             }
         }
     }
