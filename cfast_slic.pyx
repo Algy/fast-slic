@@ -29,7 +29,7 @@ cdef class SlicModel:
         self.num_components = num_components
         self.arch_name = arch_name
         self.real_dist = real_dist
-        self.real_dist_l2 = False
+        self.real_dist_type = "standard"
         self.convert_to_lab = False
 
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
@@ -180,7 +180,23 @@ cdef class SlicModel:
             finally:
                 del context
         else:
-            if self.real_dist_l2:
+            if self.real_dist_type == 'standard':
+                context_real_dist = new cfast_slic.ContextRealDist(
+                    H,
+                    W,
+                    K,
+                    &image[0, 0, 0],
+                    c_clusters,
+                )
+            elif self.real_dist_type == 'lsc':
+                context_real_dist = new cfast_slic.ContextLSC(
+                    H,
+                    W,
+                    K,
+                    &image[0, 0, 0],
+                    c_clusters,
+                )
+            elif self.real_dist_type == 'l2':
                 context_real_dist = new cfast_slic.ContextRealDistL2(
                     H,
                     W,
@@ -189,13 +205,8 @@ cdef class SlicModel:
                     c_clusters,
                 )
             else:
-                context_real_dist = new cfast_slic.ContextRealDist(
-                    H,
-                    W,
-                    K,
-                    &image[0, 0, 0],
-                    c_clusters,
-                )
+                raise RuntimeError("No such real_dist_type " + repr(self.real_dist_type))
+
             try:
                 context_real_dist.compactness = compactness
                 context_real_dist.min_size_factor = min_size_factor

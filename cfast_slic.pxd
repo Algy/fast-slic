@@ -67,6 +67,10 @@ cdef extern from "context.h" namespace "fslic":
         void set_arch(const char* arch)
         Context* build(int H, int W, int K, const uint8_t* image, Cluster *clusters)
 
+cdef extern from "lsc.h" namespace "fslic":
+    cdef cppclass ContextLSC(ContextRealDist):
+        ContextLSC(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+
 
 cdef class NodeConnectivity:
     cdef Connectivity* _c_connectivity
@@ -82,7 +86,7 @@ cdef class SlicModel:
     cdef public object initialized
     cdef public object arch_name
     cdef public object real_dist
-    cdef public object real_dist_l2
+    cdef public object real_dist_type
     cdef public object convert_to_lab
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)

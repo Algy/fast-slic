@@ -76,6 +76,10 @@ namespace fslic {
         void assign();
         void update();
     protected:
+        void full_assign();
+    protected:
+        virtual void before_iteration() {};
+        virtual void after_update() {};
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
     };

@@ -122,7 +122,7 @@ setup(
             Extension(
                 "cfast_slic",
                 include_dirs=[np.get_include()],
-                sources=["fast-slic.cpp", "cca.cpp", "context.cpp", "context-impl.cpp", "cfast_slic.pyx"],
+                sources=["fast-slic.cpp", "cca.cpp", "context.cpp", "context-impl.cpp", "lsc.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",

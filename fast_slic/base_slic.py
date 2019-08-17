@@ -53,17 +53,18 @@ class Slic(BaseSlic):
 
 class SlicRealDist(BaseSlic):
     arch_name = 'standard'
+    real_dist_type = 'standard'
 
     def make_slic_model(self, num_components):
         model = SlicModel(num_components, self.arch_name)
         model.real_dist = True
+        model.real_dist_type = self.real_dist_type
         return model
 
-class SlicRealDistL2(BaseSlic):
+class SlicRealDistL2(SlicRealDist):
     arch_name = 'standard'
+    real_dist_type = 'l2'
 
-    def make_slic_model(self, num_components):
-        model = SlicModel(num_components, self.arch_name)
-        model.real_dist = True
-        model.real_dist_l2 = True
-        return model
+class LSC(SlicRealDist):
+    arch_name = 'standard'
+    real_dist_type = 'lsc'

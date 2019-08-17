@@ -190,9 +190,9 @@ namespace fslic {
             rgb_to_cielab(aligned_quad_image, aligned_quad_image, quad_image_memory_width * H, true);
         }
 
-        // Pad image and assignment
         subsample_rem = 0;
         subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
+        before_iteration();
 
         for (int i = 0; i < max_iter; i++) {
 #           ifdef FAST_SLIC_TIMER
@@ -203,6 +203,7 @@ namespace fslic {
             auto t2 = Clock::now();
 #           endif
             update();
+            after_update();
 #           ifdef FAST_SLIC_TIMER
             auto t3 = Clock::now();
             std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
@@ -210,9 +211,7 @@ namespace fslic {
 #           endif
             subsample_rem = (subsample_rem + 1) % subsample_stride;
         }
-        subsample_stride = 1;
-        subsample_rem = 0;
-        assign();
+        full_assign();
 
         {
 #           ifdef FAST_SLIC_TIMER
@@ -283,6 +282,19 @@ namespace fslic {
                 assign_clusters(&target_clusters[0], (int)target_clusters.size());
             }
         }
+    }
+
+
+    template<typename DistType>
+    void BaseContext<DistType>::full_assign() {
+        auto old_subsample_stride = subsample_stride;
+        auto old_subsample_rem = subsample_rem;
+
+        subsample_stride = 1;
+        subsample_rem = 0;
+        assign();
+        subsample_stride = old_subsample_stride;
+        subsample_rem = old_subsample_rem;
     }
 
     template<typename DistType>
