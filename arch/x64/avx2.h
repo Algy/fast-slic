@@ -207,54 +207,44 @@ namespace fslic {
                         int index = W * i + j;
                         __m256 f_0 = _mm256_loadu_ps(&img_feats[0][index]);
                         __m256 d_0 = _mm256_sub_ps(f_0, c_0);
-                        d_0 = _mm256_mul_ps(d_0, d_0);
 
                         __m256 f_1 = _mm256_loadu_ps(&img_feats[1][index]);
                         __m256 d_1 = _mm256_sub_ps(f_1, c_1);
-                        d_1 = _mm256_mul_ps(d_1, d_1);
 
                         __m256 f_2 = _mm256_loadu_ps(&img_feats[2][index]);
                         __m256 d_2 = _mm256_sub_ps(f_2, c_2);
-                        d_2 = _mm256_mul_ps(d_2, d_2);
 
                         __m256 f_3 = _mm256_loadu_ps(&img_feats[3][index]);
                         __m256 d_3 = _mm256_sub_ps(f_3, c_3);
-                        d_3 = _mm256_mul_ps(d_3, d_3);
 
                         __m256 f_4 = _mm256_loadu_ps(&img_feats[4][index]);
                         __m256 d_4 = _mm256_sub_ps(f_4, c_4);
-                        d_4 = _mm256_mul_ps(d_4, d_4);
 
                         __m256 f_5 = _mm256_loadu_ps(&img_feats[5][index]);
                         __m256 d_5 = _mm256_sub_ps(f_5, c_5);
-                        d_5 = _mm256_mul_ps(d_5, d_5);
 
                         __m256 f_6 = _mm256_loadu_ps(&img_feats[6][index]);
                         __m256 d_6 = _mm256_sub_ps(f_6, c_6);
-                        d_6 = _mm256_mul_ps(d_6, d_6);
 
                         __m256 f_7 = _mm256_loadu_ps(&img_feats[7][index]);
                         __m256 d_7 = _mm256_sub_ps(f_7, c_7);
-                        d_7 = _mm256_mul_ps(d_7, d_7);
 
                         __m256 f_8 = _mm256_loadu_ps(&img_feats[8][index]);
                         __m256 d_8 = _mm256_sub_ps(f_8, c_8);
-                        d_8 = _mm256_mul_ps(d_8, d_8);
 
                         __m256 f_9 = _mm256_loadu_ps(&img_feats[9][index]);
                         __m256 d_9 = _mm256_sub_ps(f_9, c_9);
-                        d_9 = _mm256_mul_ps(d_9, d_9);
 
-                        __m256 q_0 = _mm256_add_ps(d_0, d_1);
-                        __m256 q_1 = _mm256_add_ps(d_2, d_3);
-                        __m256 q_2 = _mm256_add_ps(d_4, d_5);
-                        __m256 q_3 = _mm256_add_ps(d_6, d_7);
-                        __m256 q_4 = _mm256_add_ps(d_8, d_9);
-
-                        __m256 r_0 = _mm256_add_ps(q_0, q_1);
-                        __m256 r_1 = _mm256_add_ps(q_2, q_3);
-                        __m256 r_2 = q_4;
-                        __m256 dist_vec = _mm256_add_ps(_mm256_add_ps(r_0, r_1), r_2);
+                        __m256 dist_vec = _mm256_mul_ps(d_0, d_0);
+                        dist_vec = _mm256_fmadd_ps(d_1, d_1, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_2, d_2, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_3, d_3, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_4, d_4, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_5, d_5, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_6, d_6, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_7, d_7, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_8, d_8, dist_vec);
+                        dist_vec = _mm256_fmadd_ps(d_9, d_9, dist_vec);
 
 
                         __m128i old_assignment = _mm_loadu_si128((__m128i *)assignment_row);

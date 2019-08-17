@@ -83,8 +83,8 @@ if platform.system() != 'Windows':
 
     if _check_avx2():
         extra_compile_args.append("-DUSE_AVX2")
-        # extra_compile_args.append("-DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("-mavx2")
+        extra_compile_args.append("-mfma")
     if platform.machine().lower().startswith("arm") and _check_neon():
         extra_compile_args.append("-DUSE_NEON")
         extra_compile_args.append("-mfpu=neon")
@@ -93,8 +93,8 @@ else:
     extra_compile_args.append("/openmp")
     if _check_avx2():
         extra_compile_args.append("/DUSE_AVX2")
-        # extra_compile_args.append("/DFAST_SLIC_AVX2_FASTER")
         extra_compile_args.append("/arch:AVX2")
+        extra_compile_args.append("/fp:fast")
 
 
 
