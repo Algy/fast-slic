@@ -1,5 +1,5 @@
 from cfast_slic import is_supported_arch
-from .base_slic import BaseSlic
+from .base_slic import BaseSlic, LSC
 
 if not is_supported_arch("arm/neon"):
     raise ImportError(
@@ -8,4 +8,7 @@ if not is_supported_arch("arm/neon"):
     )
 
 class SlicNeon(BaseSlic):
+    arch_name = "arm/neon"
+
+class LSCNeon(LSC):
     arch_name = "arm/neon"

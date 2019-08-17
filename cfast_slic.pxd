@@ -71,6 +71,15 @@ cdef extern from "lsc.h" namespace "fslic":
     cdef cppclass ContextLSC(ContextRealDist):
         ContextLSC(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
+    cdef cppclass ContextLSCBuilder:
+        ContextLSCBuilder()
+        ContextLSCBuilder(const char* arch)
+        const char** supported_archs()
+        bool is_supported_arch()
+        const char* get_arch()
+        void set_arch(const char* arch)
+        ContextLSC* build(int H, int W, int K, const uint8_t* image, Cluster *clusters)
+
 
 cdef extern from "cca.h" namespace "cca":
     cdef cppclass ConnectivityEnforcer:

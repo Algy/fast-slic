@@ -14,7 +14,7 @@ from distutils.extension import Extension
 
 
 def _compile_and_check(c_content, compiler_args = []):
-    import os, tempfile, subprocess, shutil    
+    import os, tempfile, subprocess, shutil
     tmpdir = tempfile.mkdtemp()
     curdir = os.getcwd()
     os.chdir(tmpdir)
@@ -32,7 +32,7 @@ def _compile_and_check(c_content, compiler_args = []):
     return result == 0
 
 def _check_openmp():
-    import os, tempfile, subprocess, shutil    
+    import os, tempfile, subprocess, shutil
 
     # see http://openmp.org/wp/openmp-compilers/
     omp_test = \
@@ -122,7 +122,7 @@ setup(
             Extension(
                 "cfast_slic",
                 include_dirs=[np.get_include()],
-                sources=["fast-slic.cpp", "cca.cpp", "context.cpp", "context-impl.cpp", "lsc.cpp", "cfast_slic.pyx"],
+                sources=["fast-slic.cpp", "cca.cpp", "context.cpp", "context-impl.cpp", "lsc.cpp", "lsc-builder.cpp", "cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",
@@ -138,4 +138,3 @@ setup(
         ]
     )
 )
-

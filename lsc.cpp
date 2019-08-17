@@ -19,8 +19,9 @@ namespace fslic {
         int len = H * W;
 
         for (auto &plane : image_planes) plane.resize(len);
-        for (auto &feat : image_features) feat.resize(len);
+        for (auto &feat : image_features) feat.resize(simd_helper::align_to_next(len));
         image_weights.resize(len);
+        #pragma omp parallel for
         for (int i = 0; i < H; i++) {
             const uint8_t* image_row = quad_image.get_row(i);
             for (int j = 0; j < W; j++) {
@@ -43,6 +44,7 @@ namespace fslic {
             const uint8_t* __restrict L = &image_planes[0][0];
             const uint8_t* __restrict A = &image_planes[1][0];
             const uint8_t* __restrict B = &image_planes[2][0];
+            #pragma omp parallel for
             for (int i = 0; i < len; i++) {
                 float theta_L = halfPI * (L[i] / 255.0f);
                 float theta_A = halfPI * (A[i] / 255.0f);
@@ -62,6 +64,7 @@ namespace fslic {
             float* __restrict feat_2 = &image_features[7][0];
             float* __restrict feat_3 = &image_features[8][0];
             float* __restrict feat_4 = &image_features[9][0];
+            #pragma omp parallel for
             for (int i = 0; i < len; i++) {
                 float y = i / W, x = i % W;
         		float theta_x = halfPI * (x / S);
@@ -79,6 +82,7 @@ namespace fslic {
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 float* __restrict feat = &image_features[ix_feat][0];
                 float sum = 0;
+                #pragma omp parallel for
                 for (int i = 0; i < len; i++) {
                     sum += feat[i];
                 }
@@ -88,6 +92,7 @@ namespace fslic {
 
         {
             float* __restrict Weight = &image_weights[0];
+            #pragma omp parallel for
             for (int i = 0; i < len; i++) {
                 float w = 0;
                 for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
@@ -98,6 +103,7 @@ namespace fslic {
 
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 float* __restrict feat = &image_features[ix_feat][0];
+                #pragma omp parallel for
                 for (int i = 0; i < len; i++) {
                     feat[i] /= Weight[i];
                 }
@@ -111,6 +117,7 @@ namespace fslic {
             std::fill(feat.begin(), feat.end(), 0);
         }
 
+        #pragma omp parallel for
         for (int k = 0; k < K; k++) {
             const Cluster* cluster = &clusters[k];
             if (cluster->num_members <= 0) continue;
@@ -135,12 +142,12 @@ namespace fslic {
             int cluster_y = cluster->y, cluster_x = cluster->x;
             uint16_t cluster_no = cluster->number;
 
-            int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S, H - 1);
-            int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S, W - 1);
+            int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S + 1, H);
+            int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S + 1, W);
 
-            for (int i = y_lo; i <= y_hi; i++) {
+            for (int i = y_lo; i < y_hi; i++) {
                 if (!valid_subsample_row(i)) continue;
-                for (int j = x_lo; j <= x_hi; j++) {
+                for (int j = x_lo; j < x_hi; j++) {
                     float &min_dist = min_dists.get(i, j);
                     uint16_t &label = assignment.get(i, j);
                     int index = W * i + j;

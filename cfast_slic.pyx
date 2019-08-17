@@ -157,6 +157,8 @@ cdef class SlicModel:
         cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
         cdef cfast_slic.Context *context
         cdef cfast_slic.ContextRealDist *context_real_dist
+        cdef ContextLSCBuilder lsc_builder
+        lsc_builder.set_arch(self.arch_name)
 
         if not self.real_dist:
             context = builder.build(
@@ -189,7 +191,9 @@ cdef class SlicModel:
                     c_clusters,
                 )
             elif self.real_dist_type == 'lsc':
-                context_real_dist = new cfast_slic.ContextLSC(
+                if not lsc_builder.is_supported_arch():
+                    raise RuntimeError("LSC is not supported by arch " + repr(self.arch_name))
+                context_real_dist = lsc_builder.build(
                     H,
                     W,
                     K,

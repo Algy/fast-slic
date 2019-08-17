@@ -78,12 +78,7 @@ namespace fslic {
     			};
                 int16_t patch_height = spatial_dist_patch.get_height();
     			for (int16_t i = fit_to_stride(y_lo) - y_lo; i < patch_height; i += subsample_stride) {
-    				const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch + patch_memory_width * i;
-    	#ifdef FAST_SLIC_SIMD_INVARIANCE_CHECK
-    				assert((long long)spatial_dist_patch_base_row % 32 == 0);
-    	#endif
-    				// not aligned
-
+    				const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch.get_row(i);
                     const uint8_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
                     uint16_t* assignment_base_row = assignment.get_row(i + y_lo, x_lo);
                     uint16_t* min_dist_base_row = min_dists.get_row(i + y_lo, x_lo);
@@ -129,5 +124,124 @@ namespace fslic {
     			}
             }
 		}
+    };
+
+    inline float32x4 _float32x4_set1(float v) {
+        float32x4_t result = {v, v, v, v};
+        return result;
+    }
+
+    class ContextLSC_ARM_NEON : public ContextLSC {
+    public:
+        using ContextLSC::ContextLSC;
+    protected:
+        virtual void assign_clusters(const Cluster **target_clusters, int size) {
+            const float* __restrict img_feats[10];
+            const float* __restrict centroid_feats[10];
+
+            for (int i = 0; i < 10; i++) {
+                img_feats[i] = &image_features[i][0];
+                centroid_feats[i] = &centroid_features[i][0];
+            }
+
+            for (int cidx = 0; cidx < size; cidx++) {
+                const Cluster* cluster = target_clusters[cidx];
+                int cluster_y = cluster->y, cluster_x = cluster->x;
+                uint16_t cluster_no = cluster->number;
+
+                int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S + 1, H);
+                int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S + 1, W);
+
+    			uint16x4_t cluster_number_vec = {cluster_no, cluster_no, cluster_no, cluster_no};
+
+
+                float32x4_t c_0 = _float32x4_set1(centroid_feats[0][cluster_no]);
+                float32x4_t c_1 = _float32x4_set1(centroid_feats[1][cluster_no]);
+                float32x4_t c_2 = _float32x4_set1(centroid_feats[2][cluster_no]);
+                float32x4_t c_3 = _float32x4_set1(centroid_feats[3][cluster_no]);
+                float32x4_t c_4 = _float32x4_set1(centroid_feats[4][cluster_no]);
+                float32x4_t c_5 = _float32x4_set1(centroid_feats[5][cluster_no]);
+                float32x4_t c_6 = _float32x4_set1(centroid_feats[6][cluster_no]);
+                float32x4_t c_7 = _float32x4_set1(centroid_feats[7][cluster_no]);
+                float32x4_t c_8 = _float32x4_set1(centroid_feats[8][cluster_no]);
+                float32x4_t c_9 = _float32x4_set1(centroid_feats[9][cluster_no]);
+
+
+                for (int i = y_lo; i < y_hi; i++) {
+                    if (!valid_subsample_row(i)) continue;
+                    for (int j = x_lo; j < x_hi; j += 4) {
+                        float* __restrict min_dist_row = min_dists.get_row(i, j);
+                        uint16_t* __restrict assignment_row = assignment.get_row(i, j);
+                        int index = W * i + j;
+
+                        float32x4_t f_0 = vld1q_f32(&img_feats[0][index]);
+                        float32x4_t d_0 = vsubq_f32(f_0, c_0);
+
+                        float32x4_t f_1 = vld1q_f32(&img_feats[1][index]);
+                        float32x4_t d_1 = vsubq_f32(f_1, c_1);
+
+                        float32x4_t f_2 = vld1q_f32(&img_feats[2][index]);
+                        float32x4_t d_2 = vsubq_f32(f_2, c_2);
+
+                        float32x4_t f_3 = vld1q_f32(&img_feats[3][index]);
+                        float32x4_t d_3 = vsubq_f32(f_3, c_3);
+
+                        float32x4_t f_4 = vld1q_f32(&img_feats[4][index]);
+                        float32x4_t d_4 = vsubq_f32(f_4, c_4);
+
+                        float32x4_t f_5 = vld1q_f32(&img_feats[5][index]);
+                        float32x4_t d_5 = vsubq_f32(f_5, c_5);
+
+                        float32x4_t f_6 = vld1q_f32(&img_feats[6][index]);
+                        float32x4_t d_6 = vsubq_f32(f_6, c_6);
+
+                        float32x4_t f_7 = vld1q_f32(&img_feats[7][index]);
+                        float32x4_t d_7 = vsubq_f32(f_7, c_7);
+
+                        float32x4_t f_8 = vld1q_f32(&img_feats[8][index]);
+                        float32x4_t d_8 = vsubq_f32(f_8, c_8);
+
+                        float32x4_t f_9 = vld1q_f32(&img_feats[9][index]);
+                        float32x4_t d_9 = vsubq_f32(f_9, c_9);
+
+                        float32x4_t dist_vec = vmulq_f32(d_0, d_0);
+                        dist_vec = vmlaq_f32(dist_vec, d_1, d_1);
+                        dist_vec = vmlaq_f32(dist_vec, d_2, d_2);
+                        dist_vec = vmlaq_f32(dist_vec, d_3, d_3);
+                        dist_vec = vmlaq_f32(dist_vec, d_4, d_4);
+                        dist_vec = vmlaq_f32(dist_vec, d_4, d_4);
+                        dist_vec = vmlaq_f32(dist_vec, d_5, d_5);
+                        dist_vec = vmlaq_f32(dist_vec, d_6, d_6);
+                        dist_vec = vmlaq_f32(dist_vec, d_7, d_7);
+                        dist_vec = vmlaq_f32(dist_vec, d_8, d_8);
+                        dist_vec = vmlaq_f32(dist_vec, d_9, d_9);
+
+                        float32x4_t old_min_dist = vld1q_f32(min_dist_row);
+                        uint16x4_t old_assignment = vld1_u16(assignment_row);
+                        float32x4_t new_min_dist = vminq_f32(old_min_dist, dist_vec);
+
+                        // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
+                        uint16x4_t mask = vmovn_u32(vceqq_f32(old_min_dist, new_min_dist));
+                        // if mask[i+15:i] is not zero, choose a[i+15:i], otherwise choose b[i+15:i]
+                        uint16x4_t new_assignment = vbsl_u16(mask, old_assignment, cluster_number_vec);
+
+                        int rem = x_hi - j;
+                        if (rem >= 4) {
+                            vst1_u16(assignment_row, new_assignment);
+                            vst1q_f32(min_dist_row, new_min_dist);
+                        } else {
+                            uint16_t arr_assignment[4];
+                            float arr_dist[4];
+                            vst1_u16(arr_assignment, new_assignment);
+                            vst1q_f32(arr_dist, new_min_dist);
+                            for (int delta = 0; delta < rem; delta++) {
+                                assignment_row[delta] = arr_assignment[delta];
+                                min_dist_row[delta] = arr_dist[delta];
+                            }
+                        }
+                    }
+                }
+            }
+        }
     };
 };
