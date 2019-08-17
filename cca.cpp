@@ -354,8 +354,8 @@ namespace cca {
         return std::move(result);
     }
 
-    ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold)
-            : min_threshold(min_threshold), max_label_size(K) {
+    ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict)
+            : min_threshold(min_threshold), max_label_size(K), strict(strict) {
         // auto t0 = Clock::now();
         segment_set.set_from_2d_array(labels, H, W);
         // auto t1 = Clock::now();
@@ -377,43 +377,44 @@ namespace cca {
         std::vector<int> largest_area(max_label_size, 0); // Label -> int
 
         int W = segment_set.get_width(), H = segment_set.get_height();
-        #pragma omp parallel
-        {
-            auto &data = segment_set.get_mutable_data();
-            int num_components = cc_set->get_num_components();
-            const auto &row_offsets = segment_set.get_row_offsets();
-            std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
-            std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
-            #pragma omp for
-            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                segment_no_t segment_leader = cc_set->component_leaders[component_no];
-                label_no_t label = data[segment_leader].label;
-                if (label == 0xFFFF) continue;
-                int area = component_area[component_no];
-                if (area >= min_threshold && local_largest_area[label] < area) {
-                    local_largest_area[label] = area;
-                    local_largest_component[label] = component_no;
+        if (strict) {
+            #pragma omp parallel
+            {
+                auto &data = segment_set.get_mutable_data();
+                int num_components = cc_set->get_num_components();
+                const auto &row_offsets = segment_set.get_row_offsets();
+                std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
+                std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
+                #pragma omp for
+                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                    segment_no_t segment_leader = cc_set->component_leaders[component_no];
+                    label_no_t label = data[segment_leader].label;
+                    if (label == 0xFFFF) continue;
+                    int area = component_area[component_no];
+                    if (area >= min_threshold && local_largest_area[label] < area) {
+                        local_largest_area[label] = area;
+                        local_largest_component[label] = component_no;
+                    }
+                }
+
+                #pragma omp critical
+                for (int i = 0; i < max_label_size; i++) {
+                    if (largest_area[i] < local_largest_area[i]) {
+                        largest_area[i] = local_largest_area[i];
+                        largest_component[i] = local_largest_component[i];
+                    }
+                }
+                #pragma omp barrier
+
+
+                #pragma omp for
+                for (int ix = 0; ix < data.size(); ix++) {
+                    if (largest_component[data[ix].label] != cc_set->component_assignment[ix]) {
+                        data[ix].label = 0xFFFF;
+                    }
                 }
             }
-
-            #pragma omp critical
-            for (int i = 0; i < max_label_size; i++) {
-                if (largest_area[i] < local_largest_area[i]) {
-                    largest_area[i] = local_largest_area[i];
-                    largest_component[i] = local_largest_component[i];
-                }
-            }
-            #pragma omp barrier
-
-
-            #pragma omp for
-            for (int ix = 0; ix < data.size(); ix++) {
-                if (largest_component[data[ix].label] != cc_set->component_assignment[ix]) {
-                    data[ix].label = 0xFFFF;
-                }
-            }
-        }
-        {
+        } else {
             auto &data = segment_set.get_mutable_data();
             #pragma omp parallel for
             for (int ix = 0; ix < data.size(); ix++) {

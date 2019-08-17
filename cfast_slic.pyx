@@ -332,3 +332,31 @@ cpdef get_supported_archs():
         result.append(s.decode("utf-8"))
         p += 1
     return result
+
+cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold, bool strict):
+    cdef int H = assignments.shape[0]
+    cdef int W = assignments.shape[1]
+    cdef int K = 0
+    cdef int i, j
+    cdef uint16_t label
+    for i in range(H):
+        for j in range(W):
+            label = <uint16_t>assignments[i, j]
+            if label != 0xFFFF and K < label:
+                K = label
+    K += 1
+
+    assignments
+    cdef cfast_slic.ConnectivityEnforcer *enforcer = new cfast_slic.ConnectivityEnforcer(
+        <uint16_t *>&assignments[0, 0],
+        H,
+        W,
+        K,
+        min_threshold,
+        strict,
+    )
+    try:
+        enforcer.execute(<uint16_t *>&assignments[0, 0])
+    finally:
+        del enforcer
+    return assignments

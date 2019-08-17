@@ -72,6 +72,11 @@ cdef extern from "lsc.h" namespace "fslic":
         ContextLSC(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
 
+cdef extern from "cca.h" namespace "cca":
+    cdef cppclass ConnectivityEnforcer:
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict)
+        void execute(uint16_t *out)
+
 cdef class NodeConnectivity:
     cdef Connectivity* _c_connectivity
     cpdef tolist(self)
@@ -100,3 +105,5 @@ cdef class SlicModel:
 
 cpdef is_supported_arch(arch_name)
 cpdef get_supported_archs()
+
+cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold, bool strict)

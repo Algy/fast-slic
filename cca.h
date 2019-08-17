@@ -121,10 +121,11 @@ namespace cca {
     private:
         int min_threshold;
         int max_label_size;
+        bool strict;
         std::vector<int> label_area_tbl;
         RowSegmentSet segment_set;
     public:
-        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold);
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict = true);
         void execute(label_no_t *out);
     };
 };
