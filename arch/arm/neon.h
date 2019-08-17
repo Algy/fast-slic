@@ -126,7 +126,7 @@ namespace fslic {
 		}
     };
 
-    inline float32x4 _float32x4_set1(float v) {
+    inline float32x4_t _float32x4_set1(float v) {
         float32x4_t result = {v, v, v, v};
         return result;
     }
