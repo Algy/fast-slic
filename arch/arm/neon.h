@@ -1,6 +1,7 @@
 #include <arm_neon.h>
 #include <cassert>
 #include "../../context.h"
+#include "../../lsc.h"
 
 inline void get_assignment_value_vec(
         const Cluster* cluster,
