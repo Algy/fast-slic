@@ -170,7 +170,7 @@ namespace fslic {
         auto tt = Clock::now();
         std::cerr << "before_iteration " << std::chrono::duration_cast<std::chrono::microseconds>(tt-ts).count() << "us\n";
 #       endif
-        preemptive_grid.initialize(preemptive, preemptive_thres);
+        preemptive_grid.initialize(preemptive, preemptive_thres, subsample_stride);
 
         for (int i = 0; i < max_iter; i++) {
 #           ifdef FAST_SLIC_TIMER
@@ -335,6 +335,7 @@ namespace fslic {
     void BaseContext<DistType>::update() {
         std::vector<int32_t> num_cluster_members(K, 0);
         std::vector<int32_t> cluster_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
+        std::vector<PreemptiveTile> active_tiles = preemptive_grid.get_active_tiles();
         std::vector<bool> cluster_updatable(K);
         for (int k = 0; k < K; k++) {
             cluster_updatable[k] = preemptive_grid.is_updatable_cluster(clusters[k]);
@@ -344,18 +345,39 @@ namespace fslic {
         {
             std::vector<uint32_t> local_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
             std::vector<uint32_t> local_num_cluster_members(K, 0);
-            #pragma omp for
-            for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
-                for (int j = 0; j < W; j++) {
-                    uint16_t cluster_no = assignment.get(i, j);
-                    if (cluster_no == 0xFFFF) continue;
-                    local_num_cluster_members[cluster_no]++;
-                    local_acc_vec[5 * cluster_no + 0] += i;
-                    local_acc_vec[5 * cluster_no + 1] += j;
-                    local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
-                    local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
-                    local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+            // if a cell is active, it is updatable (but not vice versa).
+            if (preemptive_grid.all_active()) {
+                #pragma omp for
+                for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
+                    for (int j = 0; j < W; j++) {
+                        uint16_t cluster_no = assignment.get(i, j);
+                        if (cluster_no == 0xFFFF) continue;
+                        local_num_cluster_members[cluster_no]++;
+                        local_acc_vec[5 * cluster_no + 0] += i;
+                        local_acc_vec[5 * cluster_no + 1] += j;
+                        local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
+                        local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
+                        local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+                    }
                 }
+            } else {
+                #pragma omp for
+                for (int tile_ix = 0; tile_ix < (int)active_tiles.size(); tile_ix++) {
+                    PreemptiveTile &tile = active_tiles[tile_ix];
+                    for (int i = fit_to_stride(tile.sy); i < tile.ey; i += subsample_stride) {
+                        for (int j = tile.sx; j < tile.ex; j++) {
+                            uint16_t cluster_no = assignment.get(i, j);
+                            if (cluster_no == 0xFFFF || !cluster_updatable[cluster_no]) continue;
+                            local_num_cluster_members[cluster_no]++;
+                            local_acc_vec[5 * cluster_no + 0] += i;
+                            local_acc_vec[5 * cluster_no + 1] += j;
+                            local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
+                            local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
+                            local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+                        }
+                    }
+                }
+
             }
 
             #pragma omp critical
