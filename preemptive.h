@@ -48,11 +48,13 @@ public:
     }
 
     void set_old_assignment(const simd_helper::AlignedArray<uint16_t> &assignment) {
+        if (!enabled) return;
         this->old_assignment = assignment;
         std::fill(num_changes.begin(), num_changes.end(), 0);
     }
 
     void set_new_assignment(const simd_helper::AlignedArray<uint16_t> &assignment) {
+        if (!enabled) return;
         std::fill(num_changes.begin(), num_changes.end(), 0);
 
         #pragma omp parallel for
