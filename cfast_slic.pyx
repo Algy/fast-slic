@@ -35,6 +35,7 @@ cdef class SlicModel:
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
         self.initialized = False
+        self.strict_cca = True
 
     def copy(self):
         result = SlicModel(self.num_components)
@@ -173,6 +174,7 @@ cdef class SlicModel:
                 context.min_size_factor = min_size_factor
                 context.subsample_stride_config = subsample_stride
                 context.convert_to_lab = self.convert_to_lab
+                context.strict_cca = self.strict_cca
                 with nogil:
                     context.initialize_state()
                     context.iterate(
@@ -216,6 +218,7 @@ cdef class SlicModel:
                 context_real_dist.min_size_factor = min_size_factor
                 context_real_dist.subsample_stride_config = subsample_stride
                 context_real_dist.convert_to_lab = self.convert_to_lab
+                context_real_dist.strict_cca = self.strict_cca
                 with nogil:
                     context_real_dist.initialize_state()
                     context_real_dist.iterate(

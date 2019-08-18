@@ -244,20 +244,21 @@ namespace fslic {
                 }
             }
         }
-		virtual void normalize_features(int size) {
+
+    	virtual void normalize_features(float * __restrict numers[10], float* __restrict weights, int size) {
             #pragma omp parallel for
             for (int i = 0; i < size; i += 4) {
-                float32x4_t reciprocal_w = vrecpeq_f32(vld1q_f32(&image_weights[i]));
-                vst1q_f32(&image_features[0][i], vmulq_f32(vld1q_f32(&image_features[0][i]), reciprocal_w));
-                vst1q_f32(&image_features[1][i], vmulq_f32(vld1q_f32(&image_features[1][i]), reciprocal_w));
-                vst1q_f32(&image_features[2][i], vmulq_f32(vld1q_f32(&image_features[2][i]), reciprocal_w));
-                vst1q_f32(&image_features[3][i], vmulq_f32(vld1q_f32(&image_features[3][i]), reciprocal_w));
-                vst1q_f32(&image_features[4][i], vmulq_f32(vld1q_f32(&image_features[4][i]), reciprocal_w));
-                vst1q_f32(&image_features[5][i], vmulq_f32(vld1q_f32(&image_features[5][i]), reciprocal_w));
-                vst1q_f32(&image_features[6][i], vmulq_f32(vld1q_f32(&image_features[6][i]), reciprocal_w));
-                vst1q_f32(&image_features[7][i], vmulq_f32(vld1q_f32(&image_features[7][i]), reciprocal_w));
-                vst1q_f32(&image_features[8][i], vmulq_f32(vld1q_f32(&image_features[8][i]), reciprocal_w));
-                vst1q_f32(&image_features[9][i], vmulq_f32(vld1q_f32(&image_features[9][i]), reciprocal_w));
+                float32x4_t reciprocal_w = vrecpeq_f32(vld1q_f32(&weights[i]));
+                vst1q_f32(&numers[0][i], vmulq_f32(vld1q_f32(&numers[0][i]), reciprocal_w));
+                vst1q_f32(&numers[1][i], vmulq_f32(vld1q_f32(&numers[1][i]), reciprocal_w));
+                vst1q_f32(&numers[2][i], vmulq_f32(vld1q_f32(&numers[2][i]), reciprocal_w));
+                vst1q_f32(&numers[3][i], vmulq_f32(vld1q_f32(&numers[3][i]), reciprocal_w));
+                vst1q_f32(&numers[4][i], vmulq_f32(vld1q_f32(&numers[4][i]), reciprocal_w));
+                vst1q_f32(&numers[5][i], vmulq_f32(vld1q_f32(&numers[5][i]), reciprocal_w));
+                vst1q_f32(&numers[6][i], vmulq_f32(vld1q_f32(&numers[6][i]), reciprocal_w));
+                vst1q_f32(&numers[7][i], vmulq_f32(vld1q_f32(&numers[7][i]), reciprocal_w));
+                vst1q_f32(&numers[8][i], vmulq_f32(vld1q_f32(&numers[8][i]), reciprocal_w));
+                vst1q_f32(&numers[9][i], vmulq_f32(vld1q_f32(&numers[9][i]), reciprocal_w));
             }
         }
     };

@@ -1,3 +1,6 @@
+#ifndef _FAST_SLIC_CIELAB_H
+#define _FAST_SLIC_CIELAB_H
+
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -296,6 +299,8 @@ public:
         }
     }
 
+
+    template <bool scale_lab = false>
     inline void convert(uint8_t R, uint8_t G, uint8_t B, uint8_t& l, uint8_t& a, uint8_t& b) {
         int sr = srgb_gamma_tbl[R], sg = srgb_gamma_tbl[G], sb = srgb_gamma_tbl[B];
 
@@ -308,6 +313,10 @@ public:
         int ciel = 116 * fy - (16 << srgb_shift);
         int ciea = 500 * (fx - fy) + (128 << srgb_shift); // to positive integer
         int cieb = 200 * (fy - fz) + (128 << srgb_shift); // to positive integer
+
+        if (scale_lab) {
+            ciel = ciel * 255 / 100;
+        }
 
         l = (uint8_t)((unsigned)ciel >> srgb_shift);
         a = (uint8_t)((unsigned)ciea >> srgb_shift);
@@ -322,19 +331,34 @@ private:
     }
 };
 
-FastCIELabCvt fast_cielab_cvt;
+static FastCIELabCvt fast_cielab_cvt;
 
-static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
-    #pragma omp parallel for if(parallel)
-    for (int s = 0; s < size; s += 4) {
-        fast_cielab_cvt.convert(
-            aligned_quad_image[s],
-            aligned_quad_image[s+1],
-            aligned_quad_image[s+2],
-            out[s],
-            out[s+1],
-            out[s+2]
-        );
+static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool scale_L = false) {
+    if (scale_L) {
+        #pragma omp parallel for
+        for (int s = 0; s < size; s += 4) {
+            fast_cielab_cvt.convert<true>(
+                aligned_quad_image[s],
+                aligned_quad_image[s+1],
+                aligned_quad_image[s+2],
+                out[s],
+                out[s+1],
+                out[s+2]
+            );
+        }
+    } else {
+        #pragma omp parallel for
+        for (int s = 0; s < size; s += 4) {
+            fast_cielab_cvt.convert<false>(
+                aligned_quad_image[s],
+                aligned_quad_image[s+1],
+                aligned_quad_image[s+2],
+                out[s],
+                out[s+1],
+                out[s+2]
+            );
+        }
+
     }
 }
 
@@ -382,3 +406,5 @@ static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, 
         out[s+2] = (uint8_t)cieb;
     }
 }
+
+#endif

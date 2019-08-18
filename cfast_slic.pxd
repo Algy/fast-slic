@@ -35,6 +35,7 @@ cdef extern from "context.h" namespace "fslic":
         float compactness
         float min_size_factor
         bool convert_to_lab
+        bool strict_cca
 
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -48,6 +49,7 @@ cdef extern from "context.h" namespace "fslic":
         float compactness
         float min_size_factor
         bool convert_to_lab
+        bool strict_cca
 
         ContextRealDist(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -102,6 +104,7 @@ cdef class SlicModel:
     cdef public object real_dist
     cdef public object real_dist_type
     cdef public object convert_to_lab
+    cdef public object strict_cca
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

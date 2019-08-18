@@ -23,7 +23,7 @@ namespace fslic {
     void BaseContext<DistType>::enforce_connectivity(uint16_t *assignment) {
         int thres = (int)round((double)(S * S) * (double)min_size_factor);
         if (K <= 0 || H <= 0 || W <= 0) return;
-        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres);
+        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres, strict_cca);
         ce.execute(assignment);
     }
 
@@ -157,11 +157,7 @@ namespace fslic {
         }
 
         if (convert_to_lab) {
-            rgb_to_cielab(
-                &quad_image.get(0, 0), &quad_image.get(0, 0),
-                quad_image.contiguous_memory_size(),
-                true
-            );
+            rgb_to_lab(&quad_image.get(0, 0), quad_image.contiguous_memory_size());
         }
 
         subsample_rem = 0;
@@ -321,6 +317,11 @@ namespace fslic {
             }
         }
         delete [] dist_row;
+    }
+
+    template<typename DistType>
+    void BaseContext<DistType>::rgb_to_lab(uint8_t *quad_image, int size) {
+        rgb_to_cielab(quad_image, quad_image, size, false);
     }
 
 

@@ -26,6 +26,7 @@ namespace fslic {
         float compactness = 20;
         float min_size_factor = 0.1;
         bool convert_to_lab = false;
+        bool strict_cca = true;
     protected:
         int H, W, K;
         int16_t S;
@@ -76,6 +77,7 @@ namespace fslic {
         virtual void after_update() {};
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
+        virtual void rgb_to_lab(uint8_t* quad_image, int size);
     };
 
     class ContextRealDist : public BaseContext<float> {

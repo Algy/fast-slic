@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include "lsc.h"
+#include "cielab.h"
 
 //map pixels into ten dimensional feature space
 
@@ -27,6 +28,7 @@ namespace fslic {
         const float PI = 3.1415926;
         const float halfPI = PI / 2;
         const float ratio = compactness / 100.0f;
+        const float C_spatial = C_color * ratio;
 
         int len = H * W;
         int aligned_len = simd_helper::align_to_next(len);
@@ -34,15 +36,20 @@ namespace fslic {
         #ifdef FAST_SLIC_TIMER
         auto t0 = Clock::now();
         #endif
-        if (!uint8_memory_pool) uint8_memory_pool = new uint8_t[3 * len];
-        if (!float_memory_pool) float_memory_pool = new float[11 * aligned_len];
+        if (uint8_memory_pool) delete [] uint8_memory_pool;
+        uint8_memory_pool = new uint8_t[3 * len];
+        if (float_memory_pool) delete [] uint8_memory_pool;
+        float_memory_pool = new float[11 * aligned_len + 10 * K];
+
         image_planes[0] = &uint8_memory_pool[0];
         image_planes[1] = &uint8_memory_pool[len];
         image_planes[2] = &uint8_memory_pool[2 * len];
         for (int i = 0; i < 10; i++) {
             image_features[i] = &float_memory_pool[i * aligned_len];
+            centroid_features[i] = &float_memory_pool[11 * aligned_len + i * K];
         }
         image_weights = &float_memory_pool[10 * aligned_len];
+
 
         #ifdef FAST_SLIC_TIMER
         auto t1 = Clock::now();
@@ -58,11 +65,6 @@ namespace fslic {
             }
         }
 
-        float* __restrict img_feats[10];
-        for (int i = 0; i < 10; i++) {
-            img_feats[i] = &image_features[i][0];
-        }
-
         #ifdef FAST_SLIC_TIMER
         auto t2 = Clock::now();
         #endif
@@ -70,18 +72,35 @@ namespace fslic {
             // l1, l2, a1, a2, b1, b2
             float color_sine_map[256];
             float color_cosine_map[256];
-            int spatial_max = my_max(H, W);
-            std::vector<float> spatial_cosine_map(spatial_max);
-            std::vector<float> spatial_sine_map(spatial_max);
+            float L_sine_map[256];
+            float L_cosine_map[256];
+            std::vector<float> width_cosine_map(W);
+            std::vector<float> width_sine_map(W);
+            std::vector<float> height_cosine_map(H);
+            std::vector<float> height_sine_map(H);
             for (int X = 0; X < 256; X++) {
                 float theta = halfPI * (X / 255.0f);
-                color_cosine_map[X] = cos(theta) * 2.55f;
-    			color_sine_map[X] = sin(theta) * 2.55f;
+                float cosine = cos(theta), sine = sin(theta);
+                color_cosine_map[X] = C_color * cosine * 2.55f;
+    			color_sine_map[X] = C_color * sine * 2.55f;
             }
-            for (int i = 0; i < spatial_max; i++) {
+
+            for (int X = 0; X < 256; X++) {
+                float theta = halfPI * (X / 255.0f);
+                L_cosine_map[X] = C_color * cos(theta);
+                L_sine_map[X] = C_color * sin(theta);
+            }
+
+            for (int i = 0; i < H; i++) {
                 float theta = i * (halfPI / S);
-                spatial_cosine_map[i] = ratio * cos(theta);
-                spatial_sine_map[i] = ratio * sin(theta);
+                height_cosine_map[i] = C_spatial * cos(theta);
+                height_sine_map[i] = C_spatial * sin(theta);
+            }
+
+            for (int i = 0; i < W; i++) {
+                float theta = i * (halfPI / S);
+                width_cosine_map[i] = C_spatial * cos(theta);
+                width_sine_map[i] = C_spatial * sin(theta);
             }
 
             const uint8_t* __restrict L = &image_planes[0][0];
@@ -89,33 +108,33 @@ namespace fslic {
             const uint8_t* __restrict B = &image_planes[2][0];
             #pragma omp parallel for
             for (int i = 0; i < len; i++) {
-                img_feats[0][i] = color_cosine_map[L[i]];
-    			img_feats[1][i] = color_sine_map[L[i]];
-    			img_feats[2][i] = color_cosine_map[A[i]];
-    			img_feats[3][i] = color_sine_map[A[i]];
-    			img_feats[4][i] = color_cosine_map[B[i]];
-    			img_feats[5][i] = color_sine_map[B[i]];
+                image_features[0][i] = L_cosine_map[L[i]];
+    			image_features[1][i] = L_sine_map[L[i]];
+    			image_features[2][i] = color_cosine_map[A[i]];
+    			image_features[3][i] = color_sine_map[A[i]];
+    			image_features[4][i] = color_cosine_map[B[i]];
+    			image_features[5][i] = color_sine_map[B[i]];
             }
             // x1, x2, y1, y2
 
             #pragma omp parallel for
             for (int y = 0; y < H; y++) {
                 std::copy(
-                    spatial_cosine_map.begin(),
-                    spatial_cosine_map.begin() + W,
-                    &img_feats[6][y * W]
+                    width_cosine_map.begin(),
+                    width_cosine_map.end(),
+                    &image_features[6][y * W]
                 );
                 std::copy(
-                    spatial_sine_map.begin(),
-                    spatial_sine_map.begin() + W,
-                    &img_feats[7][y * W]
+                    width_sine_map.begin(),
+                    width_sine_map.end(),
+                    &image_features[7][y * W]
                 );
             }
 
             #pragma omp parallel for
             for (int y = 0; y < H; y++) {
-                std::fill_n(&img_feats[8][y * W], W, spatial_cosine_map[y]);
-                std::fill_n(&img_feats[9][y * W], W, spatial_sine_map[y]);
+                std::fill_n(&image_features[8][y * W], W, height_cosine_map[y]);
+                std::fill_n(&image_features[9][y * W], W, height_sine_map[y]);
             }
         }
         #ifdef FAST_SLIC_TIMER
@@ -129,7 +148,7 @@ namespace fslic {
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 float sum = 0;
                 for (int i = 0; i < len; i++) {
-                    sum += img_feats[ix_feat][i];
+                    sum += image_features[ix_feat][i];
                 }
                 sum_features[ix_feat] = sum / len;
             }
@@ -144,11 +163,11 @@ namespace fslic {
             for (int i = 0; i < len; i++) {
                 float w = 0;
                 for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                    w += sum_features[ix_feat] * img_feats[ix_feat][i];
+                    w += sum_features[ix_feat] * image_features[ix_feat][i];
                 }
                 image_weights[i] = w;
             }
-            normalize_features(len);
+            normalize_features(image_features, image_weights, len);
         }
         #ifdef FAST_SLIC_TIMER
         auto t5 = Clock::now();
@@ -161,39 +180,36 @@ namespace fslic {
     }
 
     void ContextLSC::map_centroids_into_feature_space() {
-        for (std::vector<float> &feat : centroid_features) {
-            feat.resize(K);
-            std::fill(feat.begin(), feat.end(), 0);
-        }
+        float* __restrict wsums = new float[K];
+        std::fill_n(wsums, K, 0.0f);
 
-        const float* __restrict img_feats[10];
-        float* __restrict centroid_feats[10];
-
-        for (int i = 0; i < 10; i++) {
-            img_feats[i] = &image_features[i][0];
-            centroid_feats[i] = &centroid_features[i][0];
+        for (float *feat : centroid_features) {
+            std::fill_n(feat, K, 0);
         }
 
         #pragma omp parallel for
         for (int k = 0; k < K; k++) {
             const Cluster* cluster = &clusters[k];
-            if (cluster->num_members <= 0) continue;
-            int index = clamp<int>(cluster->y, 0, H - 1) * W + clamp<int>(cluster->x, 0, W - 1);
-            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                centroid_feats[ix_feat][k] = img_feats[ix_feat][index];
+            int cluster_y = cluster->y, cluster_x = cluster->x;
+            int y_lo = my_max<int>(cluster_y - S / 4, 0), y_hi = my_min<int>(cluster_y + S / 4 + 1, H);
+            int x_lo = my_max<int>(cluster_x - S / 4, 0), x_hi = my_min<int>(cluster_x + S / 4 + 1, W);
+
+            for (int i = y_lo; i < y_hi; i++) {
+                for (int j = x_lo; j < x_hi; j++) {
+                    int index = W * i + j;
+                    // float weight = image_weights[index];
+                    for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
+                        centroid_features[ix_feat][k] += image_features[ix_feat][index];
+                    }
+                    wsums[k] += 1.0f;
+                }
             }
         }
+        normalize_features(centroid_features, wsums, K);
+        delete [] wsums;
     }
 
     void ContextLSC::assign_clusters(const Cluster** target_clusters, int size) {
-        const float* __restrict img_feats[10];
-        const float* __restrict centroid_feats[10];
-
-        for (int i = 0; i < 10; i++) {
-            img_feats[i] = &image_features[i][0];
-            centroid_feats[i] = &centroid_features[i][0];
-        }
-
         for (int cidx = 0; cidx < size; cidx++) {
             const Cluster* cluster = target_clusters[cidx];
             int cluster_y = cluster->y, cluster_x = cluster->x;
@@ -210,7 +226,7 @@ namespace fslic {
                     int index = W * i + j;
                     float dist = 0;
                     for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                        float diff = img_feats[ix_feat][index] - centroid_feats[ix_feat][cluster_no];
+                        float diff = image_features[ix_feat][index] - centroid_features[ix_feat][cluster_no];
                         dist += diff * diff;
                     }
                     if (min_dist > dist) {
@@ -223,27 +239,22 @@ namespace fslic {
     }
 
     void ContextLSC::after_update() {
-        const float* __restrict img_feats[10];
-        float* __restrict centroid_feats[10];
+        float* __restrict wsums = new float[K];
+        std::fill_n(wsums, K, 0.0f);
 
-        float* __restrict wsums[10];
         for (int i = 0; i < 10; i++) {
-            img_feats[i] = &image_features[i][0];
-            centroid_feats[i] = &centroid_features[i][0];
-            std::fill_n(centroid_feats[i], K, 0.0f);
-            wsums[i] = new float[K];
-            std::fill_n(wsums[i], K, 0.0f);
+            std::fill_n(centroid_features[i], K, 0.0f);
         }
 
         #pragma omp parallel
         {
             float* __restrict local_feats[10];
-            float* __restrict local_wsums[10];
+            float* __restrict local_wsums = new float[K];
+            std::fill_n(local_wsums, K, 0);
+
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 local_feats[ix_feat] = new float[K];
-                local_wsums[ix_feat] = new float[K];
                 std::fill_n(local_feats[ix_feat], K, 0);
-                std::fill_n(local_wsums[ix_feat], K, 0);
             }
 
             #pragma omp for
@@ -254,9 +265,9 @@ namespace fslic {
                     int index = W * i + j;
                     float w = image_weights[index];
                     for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                        local_feats[ix_feat][cluster_no] += w * img_feats[ix_feat][index];
-                        local_wsums[ix_feat][cluster_no] += w;
+                        local_feats[ix_feat][cluster_no] += w * image_features[ix_feat][index];
                     }
+                    local_wsums[cluster_no] += w;
                 }
             }
 
@@ -264,34 +275,32 @@ namespace fslic {
             {
                 for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                     for (int k = 0; k < K; k++) {
-                        centroid_feats[ix_feat][k] += local_feats[ix_feat][k];
-                        wsums[ix_feat][k] += local_wsums[ix_feat][k];
+                        centroid_features[ix_feat][k] += local_feats[ix_feat][k];
                     }
                 }
+                for (int k = 0; k < K; k++) wsums[k] += local_wsums[k];
             }
 
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 delete [] local_feats[ix_feat];
-                delete [] local_wsums[ix_feat];
             }
+            delete [] local_wsums;
         }
 
-        for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-            for (int k = 0; k < K; k++) {
-                centroid_feats[ix_feat][k] /= wsums[ix_feat][k];
-            }
-        }
-
-        for (int i = 0; i < 10; i++) {
-            delete [] wsums[i];
-        }
+        normalize_features(centroid_features, wsums, K);
+        delete [] wsums;
     }
 
-	void ContextLSC::normalize_features(int size) {
+    void ContextLSC::rgb_to_lab(uint8_t *quad_image, int size) {
+        rgb_to_cielab(quad_image, quad_image, size, true);
+    }
+
+
+	void ContextLSC::normalize_features(float *__restrict numers[10], float* __restrict weights, int size) {
         #pragma omp parallel for
         for (int i = 0; i < size; i++) {
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                image_features[ix_feat][i] /= image_weights[i];
+                numers[ix_feat][i] /= weights[i];
             }
         }
     }

@@ -9,7 +9,8 @@ class BaseSlic(object):
                  compactness=20,
                  min_size_factor=0.05,
                  subsample_stride=3,
-                 convert_to_lab=False):
+                 convert_to_lab=False,
+                 strict_cca=True):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
         self.min_size_factor = min_size_factor
@@ -17,6 +18,7 @@ class BaseSlic(object):
         self._last_assignment = None
 
         self.convert_to_lab = convert_to_lab
+        self._slic_model.strict_cca = strict_cca
 
     @property
     def convert_to_lab(self):
