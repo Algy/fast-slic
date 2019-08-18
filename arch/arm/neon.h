@@ -244,5 +244,21 @@ namespace fslic {
                 }
             }
         }
+		virtual void normalize_features(int size) {
+            #pragma omp parallel for
+            for (int i = 0; i < size; i += 4) {
+                float32x4_t reciprocal_w = vrecpeq_f32(vld1q_f32(&image_weights[i]));
+                vst1q_f32(&image_features[0][i], vmlaq_f32(vld1q_f32(&image_features[0][i]), reciprocal_w));
+                vst1q_f32(&image_features[1][i], vmlaq_f32(vld1q_f32(&image_features[1][i]), reciprocal_w));
+                vst1q_f32(&image_features[2][i], vmlaq_f32(vld1q_f32(&image_features[2][i]), reciprocal_w));
+                vst1q_f32(&image_features[3][i], vmlaq_f32(vld1q_f32(&image_features[3][i]), reciprocal_w));
+                vst1q_f32(&image_features[4][i], vmlaq_f32(vld1q_f32(&image_features[4][i]), reciprocal_w));
+                vst1q_f32(&image_features[5][i], vmlaq_f32(vld1q_f32(&image_features[5][i]), reciprocal_w));
+                vst1q_f32(&image_features[6][i], vmlaq_f32(vld1q_f32(&image_features[6][i]), reciprocal_w));
+                vst1q_f32(&image_features[7][i], vmlaq_f32(vld1q_f32(&image_features[7][i]), reciprocal_w));
+                vst1q_f32(&image_features[8][i], vmlaq_f32(vld1q_f32(&image_features[8][i]), reciprocal_w));
+                vst1q_f32(&image_features[9][i], vmlaq_f32(vld1q_f32(&image_features[9][i]), reciprocal_w));
+            }
+        }
     };
 };

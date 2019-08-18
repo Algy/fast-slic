@@ -166,7 +166,14 @@ namespace fslic {
 
         subsample_rem = 0;
         subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
+#       ifdef FAST_SLIC_TIMER
+        auto ts = Clock::now();
+#       endif
         before_iteration();
+#       ifdef FAST_SLIC_TIMER
+        auto tt = Clock::now();
+        std::cerr << "before_iteration " << std::chrono::duration_cast<std::chrono::microseconds>(tt-ts).count() << "us\n";
+#       endif
 
         for (int i = 0; i < max_iter; i++) {
 #           ifdef FAST_SLIC_TIMER
@@ -177,11 +184,14 @@ namespace fslic {
             auto t2 = Clock::now();
 #           endif
             update();
+#           ifdef FAST_SLIC_TIMER
+            auto t21 = Clock::now();
+#           endif
             after_update();
 #           ifdef FAST_SLIC_TIMER
             auto t3 = Clock::now();
-            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us \n";
+            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us\n";
+            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us (post " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t21).count() << "us)\n";
 #           endif
             subsample_rem = (subsample_rem + 1) % subsample_stride;
         }

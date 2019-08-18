@@ -8,7 +8,19 @@
 namespace fslic {
     void ContextLSC::before_iteration() {
         map_image_into_feature_space();
+        #ifdef FAST_SLIC_TIMER
+        auto t1 = Clock::now();
+        #endif
         map_centroids_into_feature_space();
+        #ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        std::cerr << "LSC.centroid: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+        #endif
+    }
+
+    ContextLSC::~ContextLSC() {
+        if (uint8_memory_pool) delete [] uint8_memory_pool;
+        if (float_memory_pool) delete [] float_memory_pool;
     }
 
     void ContextLSC::map_image_into_feature_space() {
@@ -17,10 +29,24 @@ namespace fslic {
         const float ratio = compactness / 100.0f;
 
         int len = H * W;
+        int aligned_len = simd_helper::align_to_next(len);
 
-        for (auto &plane : image_planes) plane.resize(len);
-        for (auto &feat : image_features) feat.resize(simd_helper::align_to_next(len));
-        image_weights.resize(len);
+        #ifdef FAST_SLIC_TIMER
+        auto t0 = Clock::now();
+        #endif
+        if (!uint8_memory_pool) uint8_memory_pool = new uint8_t[3 * len];
+        if (!float_memory_pool) float_memory_pool = new float[11 * aligned_len];
+        image_planes[0] = &uint8_memory_pool[0];
+        image_planes[1] = &uint8_memory_pool[len];
+        image_planes[2] = &uint8_memory_pool[2 * len];
+        for (int i = 0; i < 10; i++) {
+            image_features[i] = &float_memory_pool[i * aligned_len];
+        }
+        image_weights = &float_memory_pool[10 * aligned_len];
+
+        #ifdef FAST_SLIC_TIMER
+        auto t1 = Clock::now();
+        #endif
         #pragma omp parallel for
         for (int i = 0; i < H; i++) {
             const uint8_t* image_row = quad_image.get_row(i);
@@ -32,83 +58,106 @@ namespace fslic {
             }
         }
 
+        float* __restrict img_feats[10];
+        for (int i = 0; i < 10; i++) {
+            img_feats[i] = &image_features[i][0];
+        }
+
+        #ifdef FAST_SLIC_TIMER
+        auto t2 = Clock::now();
+        #endif
         {
             // l1, l2, a1, a2, b1, b2
-            float* __restrict feat_1 = &image_features[0][0];
-            float* __restrict feat_2 = &image_features[1][0];
-            float* __restrict feat_3 = &image_features[2][0];
-            float* __restrict feat_4 = &image_features[3][0];
-            float* __restrict feat_5 = &image_features[4][0];
-            float* __restrict feat_6 = &image_features[5][0];
+            float color_sine_map[256];
+            float color_cosine_map[256];
+            int spatial_max = my_max(H, W);
+            std::vector<float> spatial_cosine_map(spatial_max);
+            std::vector<float> spatial_sine_map(spatial_max);
+            for (int X = 0; X < 256; X++) {
+                float theta = halfPI * (X / 255.0f);
+                color_cosine_map[X] = cos(theta) * 2.55f;
+    			color_sine_map[X] = sin(theta) * 2.55f;
+            }
+            for (int i = 0; i < spatial_max; i++) {
+                float theta = i * (halfPI / S);
+                spatial_cosine_map[i] = ratio * cos(theta);
+                spatial_sine_map[i] = ratio * sin(theta);
+            }
 
             const uint8_t* __restrict L = &image_planes[0][0];
             const uint8_t* __restrict A = &image_planes[1][0];
             const uint8_t* __restrict B = &image_planes[2][0];
             #pragma omp parallel for
             for (int i = 0; i < len; i++) {
-                float theta_L = halfPI * (L[i] / 255.0f);
-                float theta_A = halfPI * (A[i] / 255.0f);
-                float theta_B = halfPI * (B[i] / 255.0f);
-
-                feat_1[i] = cos(theta_L) * 2.55f;
-    			feat_2[i] = sin(theta_L) * 2.55f;
-    			feat_3[i] = cos(theta_A) * 2.55f;
-    			feat_4[i] = sin(theta_A) * 2.55f;
-    			feat_5[i] = cos(theta_B) * 2.55f;
-    			feat_6[i] = sin(theta_B) * 2.55f;
+                img_feats[0][i] = color_cosine_map[L[i]];
+    			img_feats[1][i] = color_sine_map[L[i]];
+    			img_feats[2][i] = color_cosine_map[A[i]];
+    			img_feats[3][i] = color_sine_map[A[i]];
+    			img_feats[4][i] = color_cosine_map[B[i]];
+    			img_feats[5][i] = color_sine_map[B[i]];
             }
-        }
-        {
             // x1, x2, y1, y2
-            float* __restrict feat_1 = &image_features[6][0];
-            float* __restrict feat_2 = &image_features[7][0];
-            float* __restrict feat_3 = &image_features[8][0];
-            float* __restrict feat_4 = &image_features[9][0];
+
             #pragma omp parallel for
-            for (int i = 0; i < len; i++) {
-                float y = i / W, x = i % W;
-        		float theta_x = halfPI * (x / S);
-        		float theta_y = halfPI * (y / S);
-    			feat_1[i] = ratio * cos(theta_x);
-    			feat_2[i] = ratio * sin(theta_x);
-    			feat_3[i] = ratio * cos(theta_y);
-    			feat_4[i] = ratio * sin(theta_y);
+            for (int y = 0; y < H; y++) {
+                std::copy(
+                    spatial_cosine_map.begin(),
+                    spatial_cosine_map.begin() + W,
+                    &img_feats[6][y * W]
+                );
+                std::copy(
+                    spatial_sine_map.begin(),
+                    spatial_sine_map.begin() + W,
+                    &img_feats[7][y * W]
+                );
+            }
+
+            #pragma omp parallel for
+            for (int y = 0; y < H; y++) {
+                std::fill_n(&img_feats[8][y * W], W, spatial_cosine_map[y]);
+                std::fill_n(&img_feats[9][y * W], W, spatial_sine_map[y]);
             }
         }
+        #ifdef FAST_SLIC_TIMER
+        auto t3 = Clock::now();
+        #endif
 
 	    float sum_features[10];
         std::fill_n(sum_features, 10, 0);
         {
+            #pragma omp parallel for
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                float* __restrict feat = &image_features[ix_feat][0];
                 float sum = 0;
-                #pragma omp parallel for
                 for (int i = 0; i < len; i++) {
-                    sum += feat[i];
+                    sum += img_feats[ix_feat][i];
                 }
                 sum_features[ix_feat] = sum / len;
             }
         }
 
+        #ifdef FAST_SLIC_TIMER
+        auto t4 = Clock::now();
+        #endif
+
         {
-            float* __restrict Weight = &image_weights[0];
             #pragma omp parallel for
             for (int i = 0; i < len; i++) {
                 float w = 0;
                 for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                    w += sum_features[ix_feat] * image_features[ix_feat][i];
+                    w += sum_features[ix_feat] * img_feats[ix_feat][i];
                 }
-                Weight[i] = w;
+                image_weights[i] = w;
             }
-
-            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                float* __restrict feat = &image_features[ix_feat][0];
-                #pragma omp parallel for
-                for (int i = 0; i < len; i++) {
-                    feat[i] /= Weight[i];
-                }
-            }
+            normalize_features(len);
         }
+        #ifdef FAST_SLIC_TIMER
+        auto t5 = Clock::now();
+        std::cerr << "LSC.image_alloc: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << "us\n";
+        std::cerr << "LSC.image_copy: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+        std::cerr << "LSC.feature_map: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+        std::cerr << "LSC.weight_map: " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << "us\n";
+        std::cerr << "LSC.feature_normalize: " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() << "us\n";
+        #endif
     }
 
     void ContextLSC::map_centroids_into_feature_space() {
@@ -117,13 +166,21 @@ namespace fslic {
             std::fill(feat.begin(), feat.end(), 0);
         }
 
+        const float* __restrict img_feats[10];
+        float* __restrict centroid_feats[10];
+
+        for (int i = 0; i < 10; i++) {
+            img_feats[i] = &image_features[i][0];
+            centroid_feats[i] = &centroid_features[i][0];
+        }
+
         #pragma omp parallel for
         for (int k = 0; k < K; k++) {
             const Cluster* cluster = &clusters[k];
             if (cluster->num_members <= 0) continue;
             int index = clamp<int>(cluster->y, 0, H - 1) * W + clamp<int>(cluster->x, 0, W - 1);
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                centroid_features[ix_feat][k] = image_features[ix_feat][index];
+                centroid_feats[ix_feat][k] = img_feats[ix_feat][index];
             }
         }
     }
@@ -227,6 +284,15 @@ namespace fslic {
 
         for (int i = 0; i < 10; i++) {
             delete [] wsums[i];
+        }
+    }
+
+	void ContextLSC::normalize_features(int size) {
+        #pragma omp parallel for
+        for (int i = 0; i < size; i++) {
+            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
+                image_features[ix_feat][i] /= image_weights[i];
+            }
         }
     }
 }

@@ -280,5 +280,22 @@ namespace fslic {
                 }
             }
         }
+    
+		virtual void normalize_features(int size) {
+            #pragma omp parallel for
+            for (int i = 0; i < size; i += 8) {
+                __m256 reciprocal_w = _mm256_rcp_ps(_mm256_loadu_ps(&image_weights[i]));
+                _mm256_storeu_ps(&image_features[0][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[0][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[1][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[1][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[2][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[2][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[3][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[3][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[4][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[4][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[5][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[5][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[6][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[6][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[7][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[7][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[8][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[8][i]), reciprocal_w));
+                _mm256_storeu_ps(&image_features[9][i], _mm256_mul_ps(_mm256_loadu_ps(&image_features[9][i]), reciprocal_w));
+            }
+        }
     };
 };
