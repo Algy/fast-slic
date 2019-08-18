@@ -37,6 +37,9 @@ cdef extern from "context.h" namespace "fslic":
         bool convert_to_lab
         bool strict_cca
 
+        bool preemptive
+        float preemptive_thres
+
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
         void initialize_state() nogil
@@ -50,6 +53,9 @@ cdef extern from "context.h" namespace "fslic":
         float min_size_factor
         bool convert_to_lab
         bool strict_cca
+
+        bool preemptive
+        float preemptive_thres
 
         ContextRealDist(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -105,6 +111,8 @@ cdef class SlicModel:
     cdef public object real_dist_type
     cdef public object convert_to_lab
     cdef public object strict_cca
+    cdef public object preemptive 
+    cdef public float preemptive_thres
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

@@ -180,9 +180,9 @@ namespace fslic {
 #           ifdef FAST_SLIC_TIMER
             auto t2 = Clock::now();
 #           endif
-            preemptive_grid.set_old_assignment(this->assignment.get_row(0), this->assignment.get_memory_width());
+            preemptive_grid.set_old_assignment(this->assignment);
             update();
-            preemptive_grid.set_new_assignment(this->assignment.get_row(0), this->assignment.get_memory_width());
+            preemptive_grid.set_new_assignment(this->assignment);
 #           ifdef FAST_SLIC_TIMER
             auto t21 = Clock::now();
 #           endif
@@ -194,6 +194,8 @@ namespace fslic {
 #           endif
             subsample_rem = (subsample_rem + 1) % subsample_stride;
         }
+        preemptive_grid.finalize();
+
         full_assign();
 
         {

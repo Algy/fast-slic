@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include "fast-slic-common.h"
+#include "simd-helper.hpp"
 
 class PreemptiveGrid {
 private:
@@ -11,12 +12,11 @@ private:
     int S;
     int CW;
     int CH;
-    int assignment_memory_width;
     float thres;
     std::vector<int> num_changes;
     std::vector<bool> is_updatable;
     std::vector<bool> is_active;
-    std::vector<uint16_t> old_assignment;
+    simd_helper::AlignedArray<uint16_t> old_assignment;
 public:
     PreemptiveGrid(int H, int W, int S) : H(H), W(W), S(S) {
         CW = ceil_int(W, S);
@@ -47,17 +47,12 @@ public:
         return !enabled || is_updatable[CW * (cluster.y / S) + (cluster.x / S)];
     }
 
-    void set_old_assignment(const uint16_t* assignment, int memory_width) {
-        old_assignment.resize(H * memory_width);
-        std::copy(
-            assignment,
-            assignment + memory_width * H,
-            this->old_assignment.begin()
-        );
+    void set_old_assignment(const simd_helper::AlignedArray<uint16_t> &assignment) {
+        this->old_assignment = assignment;
         std::fill(num_changes.begin(), num_changes.end(), 0);
     }
 
-    void set_new_assignment(const uint16_t* assignment, int memory_width) {
+    void set_new_assignment(const simd_helper::AlignedArray<uint16_t> &assignment) {
         std::fill(num_changes.begin(), num_changes.end(), 0);
 
         #pragma omp parallel for
@@ -68,8 +63,8 @@ public:
                     int cell_index = CW * ci + cj;
                     int ej = my_min((cj + 1) * S, W);
                     for (int j = cj * S; j < ej; j++) {
-                        uint16_t old_label = old_assignment[memory_width * i + j];
-                        uint16_t new_label = assignment[memory_width * i + j];
+                        uint16_t old_label = old_assignment.get(i, j);
+                        uint16_t new_label = assignment.get(i, j);
                         if (new_label != old_label)
                             num_changes[cell_index]++;
                     }

@@ -104,6 +104,7 @@ namespace simd_helper {
         int outer_width;
         int memory_width;
     public:
+        AlignedArray() : AlignedArray(0, 0) {};
         AlignedArray(int height, int width,
                     int padding_t = 0, int padding_b = 0, int padding_l = 0, int padding_r = 0)
                 : height(height), width(width),
@@ -147,6 +148,7 @@ namespace simd_helper {
             base_arr = alloc_aligned_array<T>(outer_height * memory_width);
             std::copy(rhs.base_arr, rhs.base_arr + outer_height * memory_width, base_arr);
             arr = base_arr + padding_t * memory_width + padding_l;
+            return *this;
         };
 
         ~AlignedArray() {

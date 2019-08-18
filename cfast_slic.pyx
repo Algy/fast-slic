@@ -36,6 +36,8 @@ cdef class SlicModel:
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
         self.initialized = False
         self.strict_cca = True
+        self.preemptive = False
+        self.preemptive_thres = 0.05
 
     def copy(self):
         result = SlicModel(self.num_components)
@@ -175,6 +177,8 @@ cdef class SlicModel:
                 context.subsample_stride_config = subsample_stride
                 context.convert_to_lab = self.convert_to_lab
                 context.strict_cca = self.strict_cca
+                context.preemptive = self.preemptive
+                context.preemptive_thres = self.preemptive_thres
                 with nogil:
                     context.initialize_state()
                     context.iterate(
@@ -219,6 +223,8 @@ cdef class SlicModel:
                 context_real_dist.subsample_stride_config = subsample_stride
                 context_real_dist.convert_to_lab = self.convert_to_lab
                 context_real_dist.strict_cca = self.strict_cca
+                context_real_dist.preemptive = self.preemptive
+                context_real_dist.preemptive_thres = self.preemptive_thres
                 with nogil:
                     context_real_dist.initialize_state()
                     context_real_dist.iterate(
