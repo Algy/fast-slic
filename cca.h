@@ -1,25 +1,30 @@
+#ifndef _FAST_SLIC_CCA_H
+#define _FAST_SLIC_CCA_H
+
 #include <cstdint>
 #include <vector>
 #include <memory>
+#include <functional>
 
 namespace cca {
     using label_no_t = uint16_t;
     using segment_no_t = int;
     using component_no_t = int;
     using tree_node_t = int;
-
-    class DisjointSet;
-    class ComponentSet;
+    using distance_function = std::function<float(label_no_t, label_no_t)>;
 
     struct RowSegment {
         label_no_t label;
         int16_t x;
         int16_t x_end;
+        bool mergable;
         RowSegment() {};
-        RowSegment(label_no_t label, int16_t x, int16_t x_end) : label(label), x(x), x_end(x_end) {};
+        RowSegment(label_no_t label, int16_t x, int16_t x_end) :
+            label(label), x(x), x_end(x_end), mergable(false) {};
         int16_t get_length() const { return x_end - x; };
     };
 
+    class ComponentSet;
     class RowSegmentSet {
     private:
         std::vector<RowSegment> data;
@@ -40,10 +45,6 @@ namespace cca {
         const std::vector<int>& get_row_offsets() const { return row_offsets; };
         void collapse();
     };
-
-    void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
-    void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
-    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const std::vector<int> &component_area, std::vector<label_no_t> &dest);
 
     class DisjointSet {
     public:
@@ -117,6 +118,11 @@ namespace cca {
         int get_num_components() const { return (int)num_component_members.size(); };
     };
 
+    void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
+    void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
+    void unlabeled_adj(RowSegmentSet &segment_set, const ComponentSet &cc_set, const distance_function &dist_fn, std::vector<label_no_t> &dest);
+
+
     class ConnectivityEnforcer {
     private:
         int min_threshold;
@@ -124,8 +130,11 @@ namespace cca {
         bool strict;
         std::vector<int> label_area_tbl;
         RowSegmentSet segment_set;
+        distance_function dist_fn;
     public:
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, distance_function dist_fn, bool strict = true);
         ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict = true);
         void execute(label_no_t *out);
     };
 };
+#endif

@@ -15,6 +15,7 @@
 #include "simd-helper.hpp"
 #include "fast-slic-common.h"
 #include "preemptive.h"
+#include "cca.h"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -84,6 +85,7 @@ namespace fslic {
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
         virtual void rgb_to_lab(uint8_t* quad_image, int size);
+        virtual float get_cca_distance(cca::label_no_t target, cca::label_no_t adj);
     };
 
     class ContextRealDist : public BaseContext<float> {

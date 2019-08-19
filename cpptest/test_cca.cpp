@@ -167,20 +167,17 @@ TEST(DisjointSet, unlabeled_adj) {
     cca::assign_disjoint_set(rss, disjoint_set);
     std::unique_ptr<cca::ComponentSet> cc_set { disjoint_set.flatten() };
 
-    std::vector<int> area;
-    cca::estimate_component_area(rss, *cc_set, area);
-
     std::vector<cca::label_no_t> label_subs;
-    cca::unlabeled_adj(rss, *cc_set, area, label_subs);
-    EXPECT_EQ(label_subs[2], 0);
+    cca::unlabeled_adj(rss, *cc_set, [](cca::label_no_t target, cca::label_no_t adj) { return -adj; }, label_subs);
+    EXPECT_EQ(label_subs[2], 4);
 }
 
-TEST(ConnectivityEnforcer, to_choose_largest_cc) {
+TEST(ConnectivityEnforcer, to_choose_cc_w_smallest_no) {
     cca::label_no_t x = 9;
     cca::label_no_t labels[] {
         0, 0, 0, 0, 0,
         1, 1, x, 0, 0,
-        1, x, 0, x, 4,
+        1, x, 1, x, 4,
         2, 2, x, x, 4,
         2, 3, 3, 3, 3,
     };
@@ -196,8 +193,8 @@ TEST(ConnectivityEnforcer, to_choose_largest_cc) {
     }
     */
     EXPECT_EQ(labels[5 * 1 + 2], 0);
-    EXPECT_EQ(labels[5 * 2 + 1], 0);
-    EXPECT_EQ(labels[5 * 2 + 2], 0);
+    EXPECT_EQ(labels[5 * 2 + 1], 1);
+    EXPECT_EQ(labels[5 * 2 + 2], 9);
     EXPECT_EQ(labels[5 * 2 + 3], 9);
     EXPECT_EQ(labels[5 * 3 + 2], 9);
     EXPECT_EQ(labels[5 * 3 + 3], 9);

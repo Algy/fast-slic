@@ -1,5 +1,4 @@
 #include "context.h"
-#include "cca.h"
 #include "cielab.h"
 
 #include <limits>
@@ -23,7 +22,11 @@ namespace fslic {
     void BaseContext<DistType>::enforce_connectivity(uint16_t *assignment) {
         int thres = (int)round((double)(S * S) * (double)min_size_factor);
         if (K <= 0 || H <= 0 || W <= 0) return;
-        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres, strict_cca);
+        cca::ConnectivityEnforcer ce(
+            assignment, H, W, K, thres,
+            [&](cca::label_no_t target, cca::label_no_t adj) { return get_cca_distance(target, adj); },
+            strict_cca
+        );
         ce.execute(assignment);
     }
 
@@ -408,6 +411,15 @@ namespace fslic {
             cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
             cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
         }
+    }
+
+    template<typename DistType>
+    float BaseContext<DistType>::get_cca_distance(cca::label_no_t target, cca::label_no_t adj) {
+        if (target == 0xFFFF || adj == 0xFFFF) return (float)adj;
+        const Cluster* c1 = &clusters[target];
+        const Cluster* c2 = &clusters[adj];
+        return compactness * (fast_abs(c1->x - c2->x) + fast_abs(c1->y - c2->y)) +
+            S * (fast_abs(c1->r - c2->r) + fast_abs(c1->g - c2->g) + fast_abs(c1->b - c2->b));
     }
 
     void ContextRealDistL2::assign_clusters(const Cluster** target_clusters, int size) {
