@@ -21,6 +21,7 @@ namespace fslic {
 	    virtual void assign_clusters(const Cluster **target_clusters, int size);
 		virtual void normalize_features(float *__restrict numers[10], float* __restrict weights, int size);
         virtual void rgb_to_lab(uint8_t* quad_image, int size);
+		virtual std::unique_ptr<cca::kernel_function> get_cca_kernel_function();
 	private:
 	    void map_image_into_feature_space();
 	    void map_centroids_into_feature_space();

@@ -85,7 +85,7 @@ namespace fslic {
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
         virtual void rgb_to_lab(uint8_t* quad_image, int size);
-        virtual float get_cca_distance(cca::label_no_t target, cca::label_no_t adj);
+        virtual std::unique_ptr<cca::kernel_function> get_cca_kernel_function();
     };
 
     class ContextRealDist : public BaseContext<float> {

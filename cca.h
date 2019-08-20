@@ -11,17 +11,24 @@ namespace cca {
     using segment_no_t = int;
     using component_no_t = int;
     using tree_node_t = int;
-    using distance_function = std::function<float(label_no_t, label_no_t)>;
 
     struct RowSegment {
         label_no_t label;
+        int16_t y;
         int16_t x;
         int16_t x_end;
         bool mergable;
         RowSegment() {};
-        RowSegment(label_no_t label, int16_t x, int16_t x_end) :
-            label(label), x(x), x_end(x_end), mergable(false) {};
+        RowSegment(label_no_t label, int16_t y, int16_t x, int16_t x_end) :
+            label(label), y(y), x(x), x_end(x_end), mergable(false) {};
         int16_t get_length() const { return x_end - x; };
+    };
+
+    class kernel_function {
+    public:
+        virtual int get_ndims() = 0;
+        virtual void operator() (RowSegment**, int, label_no_t, float*) = 0;
+        virtual ~kernel_function() {};
     };
 
     class ComponentSet;
@@ -43,6 +50,7 @@ namespace cca {
         const std::vector<RowSegment>& get_data() const { return data; };
         std::vector<RowSegment>& get_mutable_data() { return data; };
         const std::vector<int>& get_row_offsets() const { return row_offsets; };
+
         void collapse();
     };
 
@@ -120,7 +128,7 @@ namespace cca {
 
     void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
     void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
-    void unlabeled_adj(RowSegmentSet &segment_set, const ComponentSet &cc_set, const distance_function &dist_fn, std::vector<label_no_t> &dest);
+    void unlabeled_adj(RowSegmentSet &segment_set, const ComponentSet &cc_set, kernel_function &kernel_fn, std::vector<label_no_t> &dest);
 
 
     class ConnectivityEnforcer {
@@ -130,9 +138,9 @@ namespace cca {
         bool strict;
         std::vector<int> label_area_tbl;
         RowSegmentSet segment_set;
-        distance_function dist_fn;
+        kernel_function& kernel_fn;
     public:
-        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, distance_function dist_fn, bool strict = true);
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, kernel_function &kernel_fn, bool strict = true);
         ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict = true);
         void execute(label_no_t *out);
     };

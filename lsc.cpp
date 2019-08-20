@@ -197,11 +197,11 @@ namespace fslic {
             for (int i = y_lo; i < y_hi; i++) {
                 for (int j = x_lo; j < x_hi; j++) {
                     int index = W * i + j;
-                    // float weight = image_weights[index];
+                    float weight = image_weights[index];
                     for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                        centroid_features[ix_feat][k] += image_features[ix_feat][index];
+                        centroid_features[ix_feat][k] += weight * image_features[ix_feat][index];
                     }
-                    wsums[k] += 1.0f;
+                    wsums[k] += weight;
                 }
             }
         }
@@ -333,5 +333,38 @@ namespace fslic {
                 numers[ix_feat][i] /= weights[i];
             }
         }
+    }
+
+    std::unique_ptr<cca::kernel_function> ContextLSC::get_cca_kernel_function() {
+        class lsc_cca_kernel_function : public cca::kernel_function {
+        public:
+            float* __restrict image_features[10]; // l1, l2, a1, a2, b1, b2, x1, x2, y1, y2
+            float* __restrict image_weights;
+            int W;
+            lsc_cca_kernel_function(float* __restrict image_features[], float* __restrict image_weights, int W)
+                    : image_weights(image_weights), W(W) {
+                std::copy(image_features, image_features + 10, this->image_features);
+            };
+        public:
+            virtual int get_ndims() { return 10; };
+            virtual void operator() (cca::RowSegment** segments, int size, cca::label_no_t label, float* out) {
+                int ndims = get_ndims();
+                float* __restrict my_out = out;
+                std::fill_n(my_out, ndims, 0.0f);
+
+                float weight = 0;
+                for (int i = 0; i < size; i++) {
+                    const cca::RowSegment& seg = *segments[i];
+                    for (int x = seg.x; x < seg.x_end; x++) {
+                        for (int dim = 0; dim < 10; dim++) {
+                            my_out[dim] += image_features[dim][seg.y * W + x];
+                        }
+                        weight += image_weights[seg.y * W + x];
+                    }
+                }
+                for (int i = 0; i < ndims; i++) my_out[i] /= weight;
+            }
+        };
+        return std::unique_ptr<cca::kernel_function> { new lsc_cca_kernel_function(image_features, image_weights, W) };
     }
 }
