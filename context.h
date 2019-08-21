@@ -77,6 +77,7 @@ namespace fslic {
         void prepare_spatial();
         void assign();
         void update();
+        void update_raw(uint16_t *assignment_arr);
     protected:
         void full_assign();
     protected:

@@ -17,91 +17,6 @@ namespace fslic {
     template<typename DistType>
     BaseContext<DistType>::~BaseContext() {
     }
-        //===========================================================================
-    ///	EnforceLabelConnectivity
-    ///
-    ///		1. finding an adjacent label for each new component at the start
-    ///		2. if a certain component is too small, assigning the previously found
-    ///		    adjacent label to this component, and not incrementing the label.
-    //===========================================================================
-    static void EnforceLabelConnectivity(uint16_t* labels, const int width, const int height, const int K) {
-    	const int dx4[4] = {-1,  0,  1,  0};
-    	const int dy4[4] = { 0, -1,  0,  1};
-
-    	const int sz = width*height;
-    	const int SUPSZ = sz / K;
-
-        std::vector<int16_t> nlabels(sz, -1);
-    	int label(0);
-        std::vector<int> xvec(sz, 0);
-        std::vector<int> yvec(sz, 0);
-    	int oindex(0);
-    	int adjlabel(0);//adjacent label
-    	for( int j = 0; j < height; j++ ) {
-    		for( int k = 0; k < width; k++ ) {
-    			if( 0 > nlabels[oindex] ) {
-    				nlabels[oindex] = label;
-    				//--------------------
-    				// Start a new segment
-    				//--------------------
-    				xvec[0] = k; // enqueue
-    				yvec[0] = j; // enqueue
-    				//-------------------------------------------------------
-    				// Quickly find an adjacent label for use later if needed
-    				//-------------------------------------------------------
-    				for( int n = 0; n < 4; n++ ) {
-    					int x = xvec[0] + dx4[n];
-    					int y = yvec[0] + dy4[n];
-    					if( (x >= 0 && x < width) && (y >= 0 && y < height) )
-    					{
-    						int nindex = y*width + x;
-    						if(nlabels[nindex] >= 0) adjlabel = nlabels[nindex];
-    					}
-    				}
-
-    				int count(1);
-    				for( int c = 0; c < count; c++ )
-    				{
-    					for( int n = 0; n < 4; n++ )
-    					{
-    						int x = xvec[c] + dx4[n];
-    						int y = yvec[c] + dy4[n];
-
-    						if( (x >= 0 && x < width) && (y >= 0 && y < height) )
-    						{
-    							int nindex = y*width + x;
-
-    							if( 0 > nlabels[nindex] && labels[oindex] == labels[nindex] )
-    							{
-    								xvec[count] = x;
-    								yvec[count] = y;
-    								nlabels[nindex] = label;
-    								count++;
-    							}
-    						}
-
-    					}
-    				}
-    				//-------------------------------------------------------
-    				// If segment size is less then a limit, assign an
-    				// adjacent label found before, and decrement label count.
-    				//-------------------------------------------------------
-    				if(count <= SUPSZ >> 2) {
-    					for( int c = 0; c < count; c++ ) {
-    						int ind = yvec[c]*width+xvec[c];
-    						nlabels[ind] = adjlabel;
-    					}
-    					label--;
-    				}
-    				label++;
-    			}
-    			oindex++;
-    		}
-    	}
-
-        std::copy(nlabels.begin(), nlabels.end(), (int16_t *)labels);
-    }
-
 
     template<typename DistType>
     void BaseContext<DistType>::enforce_connectivity(uint16_t *assignment) {
@@ -111,6 +26,7 @@ namespace fslic {
         std::unique_ptr<cca::kernel_function> kernel_fn { get_cca_kernel_function() };
         cca::ConnectivityEnforcer ce(assignment, H, W, K, thres, *kernel_fn, strict_cca);
         ce.execute(assignment);
+        update_raw(assignment);
     }
 
     template <typename DistType>
@@ -497,6 +413,57 @@ namespace fslic {
     }
 
     template<typename DistType>
+    void BaseContext<DistType>::update_raw(uint16_t *assignment_arr) {
+        std::vector<int32_t> num_cluster_members(K, 0);
+        std::vector<int32_t> cluster_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
+
+        #pragma omp parallel
+        {
+            std::vector<uint32_t> local_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
+            std::vector<uint32_t> local_num_cluster_members(K, 0);
+            for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
+                for (int j = 0; j < W; j++) {
+                    uint16_t cluster_no = assignment_arr[i * W + j];
+                    if (cluster_no == 0xFFFF) continue;
+                    local_num_cluster_members[cluster_no]++;
+                    local_acc_vec[5 * cluster_no + 0] += i;
+                    local_acc_vec[5 * cluster_no + 1] += j;
+                    local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
+                    local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
+                    local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+                }
+            }
+
+            #pragma omp critical
+            {
+                for (int i = 0; i < (int)local_acc_vec.size(); i++) {
+                    cluster_acc_vec[i] += local_acc_vec[i];
+                }
+                for (int k = 0; k < K; k++) {
+                    num_cluster_members[k] += local_num_cluster_members[k];
+                }
+            }
+        }
+
+
+        for (int k = 0; k < K; k++) {
+            int32_t num_current_members = num_cluster_members[k];
+            Cluster *cluster = &clusters[k];
+            cluster->num_members = num_current_members;
+
+            if (num_current_members == 0) continue;
+
+            // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
+            // But, I intentionally used mean here for the sake of performance.
+            cluster->y = round_int(cluster_acc_vec[5 * k + 0], num_current_members);
+            cluster->x = round_int(cluster_acc_vec[5 * k + 1], num_current_members);
+            cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
+            cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
+            cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
+        }
+    }
+
+    template<typename DistType>
     std::unique_ptr<cca::kernel_function> BaseContext<DistType>::get_cca_kernel_function() {
         class slic_cca_kernel_function : public cca::kernel_function {
         public:
@@ -507,7 +474,7 @@ namespace fslic {
                 : quad_image(quad_image), coef(compactness / S) {};
         public:
             virtual int get_ndims() { return 5; };
-            virtual void operator() (cca::RowSegment** segments, int size, cca::label_no_t label, float* out) {
+            virtual void operator() (cca::RowSegment** segments, int size, cca::label_no_t label, float* out, float* out_weight) {
                 int ndims = get_ndims();
                 float* __restrict my_out = out;
                 std::fill_n(my_out, ndims, 0.0f);
@@ -528,6 +495,7 @@ namespace fslic {
                     counter += seg.get_length();
                 }
                 for (int i = 0; i < ndims; i++) my_out[i] /= counter;
+                *out_weight = (float)counter;
             }
         };
 

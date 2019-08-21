@@ -27,7 +27,7 @@ namespace cca {
     class kernel_function {
     public:
         virtual int get_ndims() = 0;
-        virtual void operator() (RowSegment**, int, label_no_t, float*) = 0;
+        virtual void operator() (RowSegment**, int, label_no_t, float*, float*) = 0;
         virtual ~kernel_function() {};
     };
 

@@ -347,7 +347,7 @@ namespace fslic {
             };
         public:
             virtual int get_ndims() { return 10; };
-            virtual void operator() (cca::RowSegment** segments, int size, cca::label_no_t label, float* out) {
+            virtual void operator() (cca::RowSegment** segments, int size, cca::label_no_t label, float* out, float* out_weight) {
                 int ndims = get_ndims();
                 float* __restrict my_out = out;
                 std::fill_n(my_out, ndims, 0.0f);
@@ -363,6 +363,7 @@ namespace fslic {
                     }
                 }
                 for (int i = 0; i < ndims; i++) my_out[i] /= weight;
+                *out_weight = weight;
             }
         };
         return std::unique_ptr<cca::kernel_function> { new lsc_cca_kernel_function(image_features, image_weights, W) };

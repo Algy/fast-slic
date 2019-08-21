@@ -10,6 +10,7 @@
 #include <limits>
 #include <list>
 #include <ctime>
+#include <queue>
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -39,7 +40,7 @@ namespace cca {
     struct Edge {
         int order_s, order_e;
         float dist;
-        Edge(int order_s, int order_e) : order_s(order_s), order_e(order_e) {};
+        Edge(int order_s, int order_e, float dist = 0) : order_s(order_s), order_e(order_e), dist(dist) {};
     };
 
     bool operator <(const Edge& lhs, const Edge& rhs) {
@@ -109,6 +110,7 @@ namespace cca {
         std::unordered_map<component_no_t, int> component_no_to_order;// ComponentNo -> Order(int)
 
         std::vector<float> features; // ndims * Order -> float[ndims]
+        std::vector<float> weights; // Order -> float
         std::vector<Edge> edges;
     public:
         std::vector<label_no_t> merge_map; // ComponentNo -> LabelNo
@@ -136,9 +138,7 @@ namespace cca {
             estimate_component_area(segment_set, cc_set, component_area); // ComponentNo -> int (area)
             #pragma omp parallel for
             for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                segment_no_t segment_leader = cc_set.component_leaders[component_no];
-                label_no_t label = data[segment_leader].label;
-                if (component_area[component_no] < min_threshold || label == 0xFFFF) {
+                if (component_area[component_no] < min_threshold) {
                     mergable_component_map[component_no] = 1;
                     #pragma omp critical
                     {
@@ -150,47 +150,42 @@ namespace cca {
         }
 
         void gather_mergable_strict() {
+            struct component_area_pair {
+                component_no_t component_no;
+                int area;
+                component_area_pair(component_no_t component_no, int area)
+                    : component_no(component_no), area(area) {};
+            };
+
+            struct sort_by_area_desc {
+                bool operator()(const component_area_pair& lhs, const component_area_pair &rhs) {
+                    return lhs.area > rhs.area;
+                }
+            };
+
             std::vector<int> component_area;
             estimate_component_area(segment_set, cc_set, component_area); // ComponentNo -> int (area)
-            std::vector<int> largest_area(max_label_size, 0); // Label -> int
-            std::vector<component_no_t> largest_component(max_label_size, -1); // Label -> ComponentNo
-            #pragma omp parallel
-            {
-                std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
-                std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
-                #pragma omp for
-                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                    segment_no_t segment_leader = cc_set.component_leaders[component_no];
-                    label_no_t label = data[segment_leader].label;
-                    if (label == 0xFFFF) continue;
-                    int area = component_area[component_no];
-                    if (area >= min_threshold && local_largest_area[label] < area) {
-                        local_largest_area[label] = area;
-                        local_largest_component[label] = component_no;
-                    }
+            std::vector<component_area_pair> area_pairs;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                area_pairs.push_back(
+                    component_area_pair(component_no, component_area[component_no])
+                );
+            }
+            std::sort(area_pairs.begin(), area_pairs.end(), sort_by_area_desc());
+            int end = (int)area_pairs.size();
+            if (end > max_label_size) end = max_label_size;
+            int cutoff = end;
+            for (int i = 0; i < end; i++) {
+                if (area_pairs[i].area < min_threshold) {
+                    cutoff = i;
+                    break;
                 }
-
-                #pragma omp critical
-                for (int i = 0; i < max_label_size; i++) {
-                    if (largest_area[i] < local_largest_area[i]) {
-                        largest_area[i] = local_largest_area[i];
-                        largest_component[i] = local_largest_component[i];
-                    }
-                }
-                #pragma omp barrier
-
-                #pragma omp for
-                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                    label_no_t label = data[cc_set.component_leaders[component_no]].label;
-                    if (label == 0xFFFF || largest_component[label] != component_no) {
-                        mergable_component_map[component_no] = 1;
-                        #pragma omp critical(crit)
-                        {
-                            component_of_interest_nos.push_back(component_no);
-                            is_component_mergable.push_back(true);
-                        }
-                    }
-                }
+            }
+            for (int i = cutoff; i < (int)area_pairs.size(); i++) {
+                component_no_t component_no = area_pairs[i].component_no;
+                component_of_interest_nos.push_back(component_no);
+                is_component_mergable.push_back(true);
+                mergable_component_map[component_no] = 1;
             }
         }
 
@@ -222,9 +217,9 @@ namespace cca {
                     while (up_ix < up_ix_end && curr_ix < curr_ix_end) {
                         const RowSegment &up_seg = data[up_ix];
                         const RowSegment &curr_seg = data[curr_ix];
-                        if (data[up_ix].x_end <= data[curr_ix].x) {
+                        if (data[up_ix].x_end < data[curr_ix].x) {
                             up_ix++;
-                        } else if (data[curr_ix].x_end <= data[up_ix].x) {
+                        } else if (data[curr_ix].x_end < data[up_ix].x) {
                             curr_ix++;
                         } else {
                             // if control flows through here, it means prev and curr overlap
@@ -281,6 +276,7 @@ namespace cca {
         void gather_component_features_of_intrest() {
             std::vector<std::vector<RowSegment*>> component_segs(num_components_of_interest);
             features.resize(ndims * num_components_of_interest, 0.0f);
+            weights.resize(num_components_of_interest, 1.0f);
 
             #pragma omp parallel for
             for (int ix = 0; ix < segment_set.size(); ix++) {
@@ -297,7 +293,7 @@ namespace cca {
             for (int order = 0; order < num_components_of_interest; order++) {
                 std::vector<RowSegment*>& segs = component_segs[order];
                 label_no_t label = data[cc_set.component_leaders[component_of_interest_nos[order]]].label;
-                kernel_fn(&segs[0], (int)segs.size(), label, &features[ndims * order]);
+                kernel_fn(&segs[0], (int)segs.size(), label, &features[ndims * order], &weights[order]);
             }
         }
 
@@ -351,9 +347,9 @@ namespace cca {
                         const RowSegment &curr_seg = data[curr_ix];
                         component_no_t up_com = cc_set.component_assignment[up_ix];
                         component_no_t curr_com = cc_set.component_assignment[curr_ix];
-                        if (data[up_ix].x_end <= data[curr_ix].x) {
+                        if (data[up_ix].x_end < data[curr_ix].x) {
                             up_ix++;
-                        } else if (data[curr_ix].x_end <= data[up_ix].x) {
+                        } else if (data[curr_ix].x_end < data[up_ix].x) {
                             curr_ix++;
                         } else {
                             // if control flows through here, it means prev and curr overlap
@@ -395,6 +391,7 @@ namespace cca {
             auto last = std::unique(edges.begin(), edges.end());
             edges.erase(last, edges.end());
 
+
             #pragma omp parallel for
             for (int i = 0; i < (int)edges.size(); i++) {
                 Edge &edge = edges[i];
@@ -409,48 +406,142 @@ namespace cca {
         }
 
     public:
-        // Return a table that maps a component number to its coressponding label.
-        std::vector<label_no_t> run_kruskal() {
-            std::sort(
-                edges.begin(),
-                edges.end(),
-                [](const Edge& lhs, const Edge& rhs) { return lhs.dist < rhs.dist; }
-            );
-            DisjointSet disjoint_set(num_components_of_interest);
-            DisjointSet disjoint_set_2(num_components_of_interest);
-
-            int first_adj_order = -1;
-            for (int order = 0; order < num_components_of_interest; order++) {
-                if (is_component_mergable[order]) continue;
-                if (first_adj_order == -1) first_adj_order = order;
-                disjoint_set.merge(first_adj_order, order);
+        /*
+        struct edge_pointer_dist_less {
+            bool operator()(const Edge& lhs, const Edge& rhs) {
+                return lhs.dist < rhs.dist;
             }
+        };
+
+        std::vector<label_no_t> run_agglomerative_clustering() {
+
+            DisjointSet disjoint_set(num_components_of_interest);
+
+            // min-heap
+            std::vector<Edge> curr_edge_list(edges.begin(), edges.end());
+            std::vector<float> curr_features(features.begin(), features.end());
+            std::vector<float> curr_weights(weights.begin(), weights.end());
+            std::vector<bool> curr_mergable(is_component_mergable.begin(), is_component_mergable.end());
+            std::vector<bool> already_merged(false, num_components_of_interest);
+
+            std::vector< std::list<int> > edge_indices(num_components_of_interest);
 
             for (const Edge &edge : edges) {
-                if (disjoint_set.find(edge.order_s) != disjoint_set.find(edge.order_e)) {
-                    disjoint_set.merge(edge.order_s, edge.order_e);
-                    disjoint_set_2.merge(edge.order_s, edge.order_e);
+                queue.push(edge);
+                edge_indices[edge.order_s].push_back(edge.order_e);
+                edge_indices[edge.order_e].push_back(edge.order_s);
+            }
+
+            while (!queue.empty()) {
+                Edge edge = queue.pop();
+                if (!curr_mergable[edge.order_s] && !curr_mergable[edge.order_e]) {
+                    continue;
+                } else if (disjoint_set.find(edge.order_s) == disjoint_set.fnid(edge.order_e)) {
+                    continue;
+                }
+
+                if (!curr_mergable[edge.order_e] && curr_mergable[edge.order_e]) {
+                    curr_mergable[edge.order_s] = false;
+                }
+                disjoint_set.merge(edge.order_s, edge.order_e);
+                already_merged[edge.order_e] = true;
+
+                for (int i = 0; i < ndims; i++) {
+                    curr_features[edge.order_s] = (
+                        curr_features[ndims * edge.order_s + i] * curr_weights[edge.order_s] +
+                        curr_features[ndims * edge.order_e + i] * curr_weights[edge.order_e]
+                    ) / (curr_weights[edge.order_s] + curr_weights[edge.order_e]);
+                    curr_weights[edge.order_s] = curr_weights[edge.order_s] + curr_weights[edge.order_e];
+                }
+
+                for (int target : edge_indices[edge.order_s]) {
+                }
+                for (int target : edge_indices[edge.order_e]) {
                 }
             }
 
-            std::vector<label_no_t> root_order_to_label(num_components_of_interest);
-            #pragma omp parallel for
-            for (int order = 0; order < num_components_of_interest; order++) {
-                if (is_component_mergable[order]) continue;
-                component_no_t component_no = component_of_interest_nos[order];
-                label_no_t label = data[cc_set.component_leaders[component_no]].label;
-                int root = disjoint_set_2.find_root(order);
-                root_order_to_label[root] = label;
-            }
 
-            std::vector<label_no_t> result(num_components, 0xFFFF); // ComponentNo -> LabelNo
+            features[(order + 1)];
             #pragma omp parallel for
             for (int order = 0; order < num_components_of_interest; order++) {
-                if (!is_component_mergable[order]) continue;
-                component_no_t component_no = component_of_interest_nos[order];
-                int root = disjoint_set_2.find_root(order);
-                label_no_t label = root_order_to_label[root];
-                result[component_no] = label;
+            }
+        }
+        */
+
+        std::vector<std::list<Edge>> get_edge_list() {
+            std::vector<std::list<Edge>> edge_list(num_components_of_interest);
+            for (const Edge &edge : edges) {
+                edge_list[edge.order_s].push_back(Edge(edge.order_s, edge.order_e, edge.dist));
+                edge_list[edge.order_e].push_back(Edge(edge.order_e, edge.order_s, edge.dist));
+            }
+            return edge_list;
+        }
+
+        std::vector<std::vector<int>> get_indepedent_component_groups() {
+            DisjointSet disjoint_set(num_components_of_interest);
+            for (const Edge &edge : edges) {
+                disjoint_set.merge(edge.order_s, edge.order_e);
+            }
+            std::unique_ptr<ComponentSet> component_complex { disjoint_set.flatten() };
+            std::vector< std::vector<int> > component_groups(component_complex->num_components);
+            for (int order = 0; order < num_components_of_interest; order++) {
+                component_groups[component_complex->component_assignment[order]].push_back(order);
+            }
+            return component_groups;
+        }
+
+        std::vector<label_no_t> run_prim() {
+            struct edge_cmp {
+                bool operator()(const Edge& lhs, const Edge &rhs) {
+                    return lhs.dist > rhs.dist;
+                }
+            };
+
+            std::vector<int> root_map(num_components_of_interest);
+            for (int i = 0; i < (int)root_map.size(); i++) root_map[i] = i;
+            std::vector<int> visited(num_components_of_interest, 0);
+            const std::vector<std::list<Edge>> edge_list = get_edge_list();
+            const std::vector< std::vector<int> > component_groups = get_indepedent_component_groups();
+            #pragma omp parallel for schedule(dynamic)
+            for (int i = 0; i < (int)component_groups.size(); i++) {
+                std::priority_queue<Edge, std::vector<Edge>, edge_cmp> queue;
+                const std::vector<int>& vertices = component_groups[i];
+
+                for (int order : vertices) {
+                    if (is_component_mergable[order]) continue;
+                    visited[order] = 1;
+
+                    for (Edge edge : edge_list[order]) {
+                        queue.push(edge);
+                    }
+                }
+
+                while (!queue.empty()) {
+                    const Edge edge = queue.top();
+                    queue.pop();
+                    if (visited[edge.order_e]) continue;
+                    visited[edge.order_e] = 1;
+                    root_map[edge.order_e] = root_map[edge.order_s];
+                    // Relax
+                    for (const Edge & neighbor: edge_list[edge.order_e]) {
+                        if (visited[neighbor.order_e]) continue;
+                        queue.push(neighbor);
+                    }
+                }
+            }
+            std::vector<label_no_t> result(num_components, 0xFFFF);
+            // relabeling
+            label_no_t last_new_label = 0;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (!mergable_component_map[component_no]) {
+                    result[component_no] = last_new_label++;
+                }
+            }
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (mergable_component_map[component_no]) {
+                    result[component_no] =
+                        result[component_of_interest_nos[root_map[component_no_to_order[component_no]]]];
+                }
             }
             return result;
         }
@@ -677,10 +768,25 @@ namespace cca {
     }
 
     class default_kernel_fn_cls : public kernel_function {
-        virtual int get_ndims() { return 1; };
-        virtual void operator() (RowSegment** segs, int size, label_no_t label, float* out) {
-            out[0] = label;
-        };
+    public:
+        virtual int get_ndims() { return 2; };
+        virtual void operator() (RowSegment** segments, int size, label_no_t label, float* out, float* out_weight) {
+            int ndims = get_ndims();
+            float* __restrict my_out = out;
+            std::fill_n(my_out, ndims, 0.0f);
+
+            int counter = 0;
+            for (int i = 0; i < size; i++) {
+                const cca::RowSegment& seg = *segments[i];
+                for (int x = seg.x; x < seg.x_end; x++) {
+                    my_out[0] += seg.y;
+                    my_out[1] += seg.x;
+                }
+                counter += seg.get_length();
+            }
+            for (int i = 0; i < ndims; i++) my_out[i] /= counter;
+            *out_weight = (float)counter;
+        }
     } default_kernel_fn;
 
     ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H,
@@ -700,7 +806,7 @@ namespace cca {
 
         AdjMerger adj_merger(segment_set, *cc_set, max_label_size, kernel_fn, min_threshold, strict);
 
-        std::vector<label_no_t> adj = adj_merger.run_kruskal();
+        std::vector<label_no_t> substitute = adj_merger.run_prim();
 
         // auto t4 = Clock::now();
 
@@ -713,10 +819,9 @@ namespace cca {
         for (int i = 0; i < height; i++) {
             for (int off = row_offsets[i]; off < row_offsets[i + 1]; off++) {
                 const RowSegment &segment = data[off];
-                if (!segment.mergable) continue;
                 component_no_t component_no = cc_set->component_assignment[off];
-                label_no_t label_subs = adj[component_no];
-                if (label_subs == 0xFFFF) label_subs = 0;
+                label_no_t label_subs = substitute[component_no];
+                if (label_subs == 0xFFFF) label_subs = 0; // fallback
                 for (int j = segment.x; j < segment.x_end; j++) {
                     out[i * width + j] = label_subs;
                 }
