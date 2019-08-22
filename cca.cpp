@@ -43,43 +43,35 @@ namespace cca {
         Edge(int order_s, int order_e, float dist = 0) : order_s(order_s), order_e(order_e), dist(dist) {};
     };
 
-    bool operator <(const Edge& lhs, const Edge& rhs) {
-        int lhs_order_lo, lhs_order_hi, rhs_order_lo, rhs_order_hi;
-        if (lhs.order_s < lhs.order_e) {
-            lhs_order_lo = lhs.order_s;
-            lhs_order_hi = lhs.order_e;
-        } else {
-            lhs_order_hi = lhs.order_s;
-            lhs_order_lo = lhs.order_e;
-        }
-        if (rhs.order_s < rhs.order_e) {
-            rhs_order_lo = rhs.order_s;
-            rhs_order_hi = rhs.order_e;
-        } else {
-            rhs_order_hi = rhs.order_s;
-            rhs_order_lo = rhs.order_e;
-        }
+    bool operator<(const Edge& lhs, const Edge& rhs) {
+        int lhs_order_lo = lhs.order_s, lhs_order_hi = lhs.order_e;
+        int rhs_order_lo = rhs.order_s, rhs_order_hi = rhs.order_e;
+        if (lhs_order_lo > lhs_order_hi) std::swap(lhs_order_lo, lhs_order_hi);
+        if (rhs_order_lo > rhs_order_hi) std::swap(rhs_order_lo, rhs_order_hi);
+
         return lhs_order_lo < rhs_order_lo || (lhs_order_lo == rhs_order_lo && lhs_order_hi < rhs_order_hi);
     }
 
-    bool operator ==(const Edge& lhs, const Edge& rhs) {
-        int lhs_order_lo, lhs_order_hi, rhs_order_lo, rhs_order_hi;
-        if (lhs.order_s < lhs.order_e) {
-            lhs_order_lo = lhs.order_s;
-            lhs_order_hi = lhs.order_e;
-        } else {
-            lhs_order_hi = lhs.order_s;
-            lhs_order_lo = lhs.order_e;
-        }
-        if (rhs.order_s < rhs.order_e) {
-            rhs_order_lo = rhs.order_s;
-            rhs_order_hi = rhs.order_e;
-        } else {
-            rhs_order_hi = rhs.order_s;
-            rhs_order_lo = rhs.order_e;
-        }
+    bool operator==(const Edge& lhs, const Edge& rhs) {
+        int lhs_order_lo = lhs.order_s, lhs_order_hi = lhs.order_e;
+        int rhs_order_lo = rhs.order_s, rhs_order_hi = rhs.order_e;
+        if (lhs_order_lo > lhs_order_hi) std::swap(lhs_order_lo, lhs_order_hi);
+        if (rhs_order_lo > rhs_order_hi) std::swap(rhs_order_lo, rhs_order_hi);
         return lhs_order_lo == rhs_order_lo && lhs_order_hi == rhs_order_hi;
     }
+
+    struct edge_cmp_less {
+        bool operator()(const Edge& lhs, const Edge &rhs) {
+            return lhs.dist < rhs.dist || (lhs.dist == rhs.dist && lhs < rhs);
+        }
+    };
+
+    struct edge_cmp_greater {
+        bool operator()(const Edge& lhs, const Edge &rhs) {
+            return lhs.dist > rhs.dist || (lhs.dist == rhs.dist && rhs < lhs);
+        }
+    };
+
 
     struct edge_hasher {
         std::size_t operator()(const Edge& k) const {
@@ -406,70 +398,8 @@ namespace cca {
         }
 
     public:
-        /*
-        struct edge_pointer_dist_less {
-            bool operator()(const Edge& lhs, const Edge& rhs) {
-                return lhs.dist < rhs.dist;
-            }
-        };
-
-        std::vector<label_no_t> run_agglomerative_clustering() {
-
-            DisjointSet disjoint_set(num_components_of_interest);
-
-            // min-heap
-            std::vector<Edge> curr_edge_list(edges.begin(), edges.end());
-            std::vector<float> curr_features(features.begin(), features.end());
-            std::vector<float> curr_weights(weights.begin(), weights.end());
-            std::vector<bool> curr_mergable(is_component_mergable.begin(), is_component_mergable.end());
-            std::vector<bool> already_merged(false, num_components_of_interest);
-
-            std::vector< std::list<int> > edge_indices(num_components_of_interest);
-
-            for (const Edge &edge : edges) {
-                queue.push(edge);
-                edge_indices[edge.order_s].push_back(edge.order_e);
-                edge_indices[edge.order_e].push_back(edge.order_s);
-            }
-
-            while (!queue.empty()) {
-                Edge edge = queue.pop();
-                if (!curr_mergable[edge.order_s] && !curr_mergable[edge.order_e]) {
-                    continue;
-                } else if (disjoint_set.find(edge.order_s) == disjoint_set.fnid(edge.order_e)) {
-                    continue;
-                }
-
-                if (!curr_mergable[edge.order_e] && curr_mergable[edge.order_e]) {
-                    curr_mergable[edge.order_s] = false;
-                }
-                disjoint_set.merge(edge.order_s, edge.order_e);
-                already_merged[edge.order_e] = true;
-
-                for (int i = 0; i < ndims; i++) {
-                    curr_features[edge.order_s] = (
-                        curr_features[ndims * edge.order_s + i] * curr_weights[edge.order_s] +
-                        curr_features[ndims * edge.order_e + i] * curr_weights[edge.order_e]
-                    ) / (curr_weights[edge.order_s] + curr_weights[edge.order_e]);
-                    curr_weights[edge.order_s] = curr_weights[edge.order_s] + curr_weights[edge.order_e];
-                }
-
-                for (int target : edge_indices[edge.order_s]) {
-                }
-                for (int target : edge_indices[edge.order_e]) {
-                }
-            }
-
-
-            features[(order + 1)];
-            #pragma omp parallel for
-            for (int order = 0; order < num_components_of_interest; order++) {
-            }
-        }
-        */
-
-        std::vector<std::list<Edge>> get_edge_list() {
-            std::vector<std::list<Edge>> edge_list(num_components_of_interest);
+        std::vector<std::vector<Edge>> get_edge_list() {
+            std::vector<std::vector<Edge>> edge_list(num_components_of_interest);
             for (const Edge &edge : edges) {
                 edge_list[edge.order_s].push_back(Edge(edge.order_s, edge.order_e, edge.dist));
                 edge_list[edge.order_e].push_back(Edge(edge.order_e, edge.order_s, edge.dist));
@@ -490,21 +420,145 @@ namespace cca {
             return component_groups;
         }
 
-        std::vector<label_no_t> run_prim() {
-            struct edge_cmp {
-                bool operator()(const Edge& lhs, const Edge &rhs) {
-                    return lhs.dist > rhs.dist;
-                }
-            };
+        std::vector<label_no_t> run_agglomerative_clustering() {
+            std::vector<float> curr_features(features.begin(), features.end());
+            std::vector<float> curr_weights(weights.begin(), weights.end());
+            std::vector<bool> curr_mergable(is_component_mergable.begin(), is_component_mergable.end());
+            DisjointSet disjoint_set(num_components);
 
+            const auto orig_edge_list = get_edge_list();
+            auto edge_list = orig_edge_list;
+            const auto component_groups = get_indepedent_component_groups();
+            for (int i = 0; i < (int)component_groups.size(); i++) {
+                const std::vector<int>& vertices = component_groups[i];
+                // sort edges by distance in ascending order
+                std::set<Edge, edge_cmp_less> queue;
+                for (int order : vertices) {
+                    const auto &adjs = orig_edge_list[order];
+                    queue.insert(adjs.begin(), adjs.end());
+                }
+                while (!queue.empty()) {
+                    auto it = queue.begin();
+                    const Edge edge = *it;
+
+                    queue.erase(it);
+                    if (!curr_mergable[edge.order_s] && !curr_mergable[edge.order_e]) continue;
+
+                    // order_s <-(merge) order_e
+                    disjoint_set.merge(
+                        component_of_interest_nos[edge.order_s],
+                        component_of_interest_nos[edge.order_e]
+                    );
+                    curr_mergable[edge.order_s] = curr_mergable[edge.order_s] && curr_mergable[edge.order_e];
+
+                    float w_s = curr_weights[edge.order_s], w_e = curr_weights[edge.order_e];
+                    float sum_w = w_s + w_e;
+                    for (int i = 0; i < ndims; i++) {
+                        curr_features[ndims * edge.order_s + i] = (
+                            curr_features[ndims * edge.order_s + i] * w_s +
+                            curr_features[ndims * edge.order_e + i] * w_e
+                        ) / sum_w;
+                    }
+                    curr_weights[edge.order_s] = sum_w;
+
+                    auto it_l = std::find(
+                        edge_list[edge.order_s].begin(),
+                        edge_list[edge.order_s].end(),
+                        edge
+                    );
+                    auto it_r = std::find(
+                        edge_list[edge.order_e].begin(),
+                        edge_list[edge.order_e].end(),
+                        edge
+                    );
+                    edge_list[edge.order_s].erase(it_l);
+                    edge_list[edge.order_e].erase(it_r);
+
+                    std::unordered_set<int> s_targets;
+                    for (Edge &neighbor : edge_list[edge.order_s]) {
+                        queue.erase(neighbor);
+                        s_targets.insert(neighbor.order_e);
+
+                        float new_dist = 0;
+                        for (int i = 0; i < ndims; i++) {
+                            float delta = (
+                                curr_features[ndims * edge.order_s + i] -
+                                curr_features[ndims * neighbor.order_e + i]
+                            );
+                            new_dist += delta * delta;
+                        }
+                        auto it = std::find(
+                            edge_list[neighbor.order_e].begin(),
+                            edge_list[neighbor.order_e].end(),
+                            neighbor
+                        );
+                        it->dist = new_dist;
+                        neighbor.dist = new_dist;
+                        queue.insert(neighbor);
+                    }
+
+                    for (Edge neighbor : edge_list[edge.order_e]) {
+                        queue.erase(neighbor);
+                        auto it = std::find(
+                            edge_list[neighbor.order_e].begin(),
+                            edge_list[neighbor.order_e].end(),
+                            neighbor
+                        );
+
+                        if (s_targets.find(neighbor.order_e) == s_targets.end()) {
+                            float new_dist = 0;
+                            for (int i = 0; i < ndims; i++) {
+                                float delta = (
+                                    curr_features[ndims * edge.order_s + i] -
+                                    curr_features[ndims * neighbor.order_e + i]
+                                );
+                                new_dist += delta * delta;
+                            }
+                            it->order_e = edge.order_s;
+                            it->dist = new_dist;
+
+                            neighbor.order_s = edge.order_s;
+                            neighbor.dist = new_dist;
+                            queue.insert(neighbor);
+                            edge_list[edge.order_s].push_back(neighbor);
+                        } else {
+                            edge_list[neighbor.order_e].erase(it);
+                        }
+                    }
+                    edge_list[edge.order_e].clear();
+                }
+            }
+
+            std::vector<label_no_t> result(num_components, 0xFFFF);
+            // relabeling
+            label_no_t last_new_label = 0;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (!mergable_component_map[component_no]) {
+                    label_no_t new_label = last_new_label++;
+                    result[component_no] = new_label;
+                    if (adjacent_component_map[component_no]) {
+                        result[disjoint_set.find(component_no)] = new_label;
+                    }
+                }
+            }
+
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (mergable_component_map[component_no]) {
+                    result[component_no] = result[disjoint_set.find(component_no)];
+                }
+            }
+            return result;
+        }
+
+        std::vector<label_no_t> run_prim() {
             std::vector<int> root_map(num_components_of_interest);
             for (int i = 0; i < (int)root_map.size(); i++) root_map[i] = i;
             std::vector<int> visited(num_components_of_interest, 0);
-            const std::vector<std::list<Edge>> edge_list = get_edge_list();
+            const std::vector<std::vector<Edge>> edge_list = get_edge_list();
             const std::vector< std::vector<int> > component_groups = get_indepedent_component_groups();
             #pragma omp parallel for schedule(dynamic)
             for (int i = 0; i < (int)component_groups.size(); i++) {
-                std::priority_queue<Edge, std::vector<Edge>, edge_cmp> queue;
+                std::priority_queue<Edge, std::vector<Edge>, edge_cmp_greater> queue;
                 const std::vector<int>& vertices = component_groups[i];
 
                 for (int order : vertices) {
@@ -806,7 +860,7 @@ namespace cca {
 
         AdjMerger adj_merger(segment_set, *cc_set, max_label_size, kernel_fn, min_threshold, strict);
 
-        std::vector<label_no_t> substitute = adj_merger.run_prim();
+        std::vector<label_no_t> substitute = adj_merger.run_agglomerative_clustering();
 
         // auto t4 = Clock::now();
 
