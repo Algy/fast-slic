@@ -26,7 +26,7 @@ namespace fslic {
         std::unique_ptr<cca::kernel_function> kernel_fn { get_cca_kernel_function() };
         cca::ConnectivityEnforcer ce(assignment, H, W, K, thres, *kernel_fn, strict_cca);
         ce.execute(assignment);
-        update_raw(assignment);
+        // update_raw(assignment);
     }
 
     template <typename DistType>

@@ -287,6 +287,11 @@ namespace cca {
                 label_no_t label = data[cc_set.component_leaders[component_of_interest_nos[order]]].label;
                 kernel_fn(&segs[0], (int)segs.size(), label, &features[ndims * order], &weights[order]);
             }
+            #pragma omp parallel for
+            for (int i = 0; i < (int)edges.size(); i++) {
+                Edge &edge = edges[i];
+                edge.dist = get_distance(edge.order_s, edge.order_e);
+            }
         }
 
         void gather_edges() {
@@ -382,18 +387,10 @@ namespace cca {
             std::sort(edges.begin(), edges.end());
             auto last = std::unique(edges.begin(), edges.end());
             edges.erase(last, edges.end());
-
-
-            #pragma omp parallel for
-            for (int i = 0; i < (int)edges.size(); i++) {
-                Edge &edge = edges[i];
-                edge.dist = get_distance(edge.order_s, edge.order_e);
-            }
         }
 
         void init() {
             gather_components();
-            gather_component_features_of_intrest();
             gather_edges();
         }
 
@@ -420,7 +417,46 @@ namespace cca {
             return component_groups;
         }
 
+        std::vector<label_no_t> run_simple() {
+            DisjointSet mergable_disjoint_set(num_components);
+            std::vector<label_no_t> result(num_components, 0xFFFF);
+
+            // relabeling
+            label_no_t last_new_label = 0;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (!mergable_component_map[component_no]) {
+                    label_no_t new_label = last_new_label++;
+                    result[component_no] = new_label;
+                }
+            }
+            for (const Edge &edge : edges) {
+                if (is_component_mergable[edge.order_s] && is_component_mergable[edge.order_e]) {
+                    mergable_disjoint_set.merge(
+                        component_of_interest_nos[edge.order_s],
+                        component_of_interest_nos[edge.order_e]
+                    );
+                }
+            }
+            for (const Edge &edge : edges) {
+                if (!is_component_mergable[edge.order_s]) {
+                    result[mergable_disjoint_set.find(component_of_interest_nos[edge.order_e])] =
+                        result[component_of_interest_nos[edge.order_s]];
+                } else if (!is_component_mergable[edge.order_e]) {
+                    result[mergable_disjoint_set.find(component_of_interest_nos[edge.order_s])] =
+                        result[component_of_interest_nos[edge.order_e]];
+                }
+            }
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (mergable_component_map[component_no]) {
+                    result[component_no] = result[mergable_disjoint_set.find(component_no)];
+                }
+            }
+            return result;
+        }
+
         std::vector<label_no_t> run_agglomerative_clustering() {
+            gather_component_features_of_intrest();
+
             std::vector<float> curr_features(features.begin(), features.end());
             std::vector<float> curr_weights(weights.begin(), weights.end());
             std::vector<bool> curr_mergable(is_component_mergable.begin(), is_component_mergable.end());
@@ -551,6 +587,8 @@ namespace cca {
         }
 
         std::vector<label_no_t> run_prim() {
+            gather_component_features_of_intrest();
+
             std::vector<int> root_map(num_components_of_interest);
             for (int i = 0; i < (int)root_map.size(); i++) root_map[i] = i;
             std::vector<int> visited(num_components_of_interest, 0);
@@ -860,7 +898,7 @@ namespace cca {
 
         AdjMerger adj_merger(segment_set, *cc_set, max_label_size, kernel_fn, min_threshold, strict);
 
-        std::vector<label_no_t> substitute = adj_merger.run_agglomerative_clustering();
+        std::vector<label_no_t> substitute = adj_merger.run_prim();// adj_merger.run_simple(); // adj_merger.run_agglomerative_clustering();// adj_merger.run_simple();
 
         // auto t4 = Clock::now();
 
