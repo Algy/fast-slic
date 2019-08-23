@@ -1,4 +1,5 @@
 #include "cca.h"
+#include <limits>
 #include <algorithm>
 #include <iostream>
 #include <atomic>
@@ -11,6 +12,8 @@
 #include <list>
 #include <ctime>
 #include <queue>
+#include <deque>
+#include <cmath>
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -101,6 +104,7 @@ namespace cca {
         std::vector<bool> is_component_mergable; // Order -> bool
         std::unordered_map<component_no_t, int> component_no_to_order;// ComponentNo -> Order(int)
 
+        std::vector<int> component_area;
         std::vector<float> features; // ndims * Order -> float[ndims]
         std::vector<float> weights; // Order -> float
         std::vector<Edge> edges;
@@ -126,7 +130,6 @@ namespace cca {
 
     private:
         void gather_mergable_not_strict() {
-            std::vector<int> component_area;
             estimate_component_area(segment_set, cc_set, component_area); // ComponentNo -> int (area)
             #pragma omp parallel for
             for (component_no_t component_no = 0; component_no < num_components; component_no++) {
@@ -155,7 +158,6 @@ namespace cca {
                 }
             };
 
-            std::vector<int> component_area;
             estimate_component_area(segment_set, cc_set, component_area); // ComponentNo -> int (area)
             std::vector<component_area_pair> area_pairs;
             for (component_no_t component_no = 0; component_no < num_components; component_no++) {
@@ -253,24 +255,35 @@ namespace cca {
 
 
         void gather_components() {
+            auto t1 = Clock::now();
             if (strict)
                 gather_mergable_strict();
             else
                 gather_mergable_not_strict();
+            auto t2 = Clock::now();
             mark_segments_as_mergable();
+            auto t3 = Clock::now();
             gather_adj_components();
+            auto t4 = Clock::now();
             num_components_of_interest = (int)component_of_interest_nos.size();
             for (int order = 0; order < num_components_of_interest; order++) {
                 component_no_to_order[component_of_interest_nos[order]] = order;
             }
+            auto t5 = Clock::now();
+            // std::cerr << "      init_comp.gather_mergable: " << micro(t2 - t1) << "us" << std::endl;
+            // std::cerr << "      init_comp.mark_as_mergable: " << micro(t3 - t2) << "us" << std::endl;
+            // std::cerr << "      init_comp.adj_components: " << micro(t4 - t3) << "us" << std::endl;
+            // std::cerr << "      init_comp.build_map: " << micro(t5 - t4) << "us" << std::endl;
         }
 
-        void gather_component_features_of_intrest() {
+        void gather_component_features_of_intrest(bool set_dist = true) {
+            auto t1 = Clock::now();
             std::vector<std::vector<RowSegment*>> component_segs(num_components_of_interest);
             features.resize(ndims * num_components_of_interest, 0.0f);
             weights.resize(num_components_of_interest, 1.0f);
 
-            #pragma omp parallel for
+            auto t2 = Clock::now();
+
             for (int ix = 0; ix < segment_set.size(); ix++) {
                 component_no_t component_no = cc_set.component_assignment[ix];
                 const auto it = component_no_to_order.find(component_no);
@@ -278,23 +291,33 @@ namespace cca {
                 if (it == end) continue;
                 int order = it->second;
                 auto &segs = component_segs[order];
-                #pragma omp critical
                 segs.push_back(&data[ix]);
             }
+
+            auto t3 = Clock::now();
             #pragma omp parallel for
             for (int order = 0; order < num_components_of_interest; order++) {
                 std::vector<RowSegment*>& segs = component_segs[order];
                 label_no_t label = data[cc_set.component_leaders[component_of_interest_nos[order]]].label;
                 kernel_fn(&segs[0], (int)segs.size(), label, &features[ndims * order], &weights[order]);
             }
-            #pragma omp parallel for
-            for (int i = 0; i < (int)edges.size(); i++) {
-                Edge &edge = edges[i];
-                edge.dist = get_distance(edge.order_s, edge.order_e);
+            auto t4 = Clock::now();
+            if (set_dist) {
+                #pragma omp parallel for
+                for (int i = 0; i < (int)edges.size(); i++) {
+                    Edge &edge = edges[i];
+                    edge.dist = get_distance(edge.order_s, edge.order_e);
+                }
             }
+            auto t5 = Clock::now();
+            // std::cerr << "      feature.alloc: " << micro(t2 - t1) << "us" << std::endl;
+            // std::cerr << "      feature.gather_segs: " << micro(t3 - t2) << "us" << std::endl;
+            // std::cerr << "      feature.kernel_fn: " << micro(t4 - t3) << "us" << std::endl;
+            // std::cerr << "      feature.set_dist: " << micro(t5 - t4) << "us" << std::endl;
         }
 
         void gather_edges() {
+            auto t1 = Clock::now();
             int height = segment_set.get_height();
             #pragma omp parallel
             {
@@ -384,9 +407,14 @@ namespace cca {
                 #pragma omp critical
                 edges.insert(edges.end(), local_edges.begin(), local_edges.end());
             }
+            auto t2 = Clock::now();
             std::sort(edges.begin(), edges.end());
             auto last = std::unique(edges.begin(), edges.end());
             edges.erase(last, edges.end());
+            auto t3 = Clock::now();
+
+            // std::cerr << "      gather_edges.adj_test: " << micro(t2 - t1) << "us" << std::endl;
+            // std::cerr << "      gather_edges.sort: " << micro(t3 - t2) << "us" << std::endl;
         }
 
         void init() {
@@ -451,6 +479,216 @@ namespace cca {
                     result[component_no] = result[mergable_disjoint_set.find(component_no)];
                 }
             }
+            return result;
+        }
+
+        std::vector<label_no_t> run_greedy_agglomerative_clustering() {
+            auto t0 = Clock::now();
+            gather_component_features_of_intrest(false);
+            auto t1 = Clock::now();
+            std::vector<float> curr_features(features);
+            std::vector<float> curr_weights(weights);
+            std::vector<bool> curr_mergable(is_component_mergable);
+            std::vector<bool> removed(num_components_of_interest, false);
+            std::vector<int> recovered_list;
+            std::vector<int> curr_component_area(num_components_of_interest);
+
+            for (int i = 0; i < num_components_of_interest; i++) {
+                curr_component_area[i] = component_area[component_of_interest_nos[i]];
+            }
+
+            DisjointSet disjoint_set(num_components_of_interest);
+
+            auto t20 = Clock::now();
+            // const auto component_groups = get_indepedent_component_groups();
+            auto t21 = Clock::now();
+            auto edge_list = get_edge_list();
+            auto t2 = Clock::now();
+
+            int num_occupied = 0;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (!mergable_component_map[component_no]) {
+                    num_occupied++;
+                }
+            }
+            // std::atomic<int> superpixel_recover_capacity;
+            int superpixel_recover_capacity;
+            if (strict) {
+                superpixel_recover_capacity = max_label_size - num_occupied;
+            } else {
+                superpixel_recover_capacity = std::numeric_limits<int>::max();
+            }
+            auto t3 = Clock::now();
+
+            for (int i = 0; i < 1; i++) { // (int)component_groups.size(); i++) {
+                std::deque<int> q;
+                // const std::vector<int>& vertices = component_groups[i];
+                // for (int vertex : vertices) {
+                for (int vertex =  0; vertex < num_components_of_interest; vertex++) {
+                    if (curr_mergable[vertex]) {
+                        q.push_back(vertex);
+                    }
+                }
+
+                // std::cerr << "q.size(): " << q.size() << "\n";
+                // std::cerr << "num_occupied: " << num_occupied << "\n";
+                while (!q.empty()) {
+                    int curr_v = q.front();
+                    q.pop_front();
+                    // std::cerr << "q.size(): " << q.size() << "\n";
+                    if (removed[curr_v]) continue;
+
+                    float min_dist = std::numeric_limits<float>::max();
+                    int min_dist_v = -1;
+                    for (const Edge &target_edge : edge_list[curr_v]) {
+                        int target = target_edge.order_e;
+                        float new_dist = 0;
+                        for (int i = 0; i < ndims; i++) {
+                            float delta = (
+                                curr_features[ndims * curr_v + i] -
+                                curr_features[ndims * target + i]
+                            );
+                            new_dist += delta * delta;
+                        }
+                        if (min_dist > new_dist) {
+                            min_dist = new_dist;
+                            min_dist_v = target;
+                        }
+                    }
+                    if (min_dist_v == -1) {
+                        std::cerr << "== Invariance assertion(min_dist_v != -1) failed ==" << curr_v << "\n";
+                        std::cerr << "curr_v = " << curr_v << "\n";
+                        std::cerr << "q.size() = " << q.size() << "\n";
+                        std::cerr << "edge_list[curr_v].size() = " << edge_list[curr_v].size() << "\n";
+                        std::cerr << "min_dist = " << min_dist << "\n";
+                        std::cerr << "num_component_complex = " << disjoint_set.flatten()->num_components << "\n";
+                        abort();
+                    }
+
+                    int target_v = min_dist_v;
+                    int next_v = curr_v;
+
+                    if (component_area[curr_v] >= min_threshold &&
+                            !curr_mergable[target_v] &&
+                            superpixel_recover_capacity-- > 0) {
+                        curr_mergable[curr_v] = false;
+                        recovered_list.push_back(curr_v);
+                        continue;
+                    }
+
+                    disjoint_set.merge(curr_v, target_v);
+                    removed[target_v] = true;
+
+                    Edge edge = Edge(curr_v, target_v);
+                    auto it_l = std::find(
+                        edge_list[curr_v].begin(),
+                        edge_list[curr_v].end(),
+                        edge
+                    );
+                    auto it_r = std::find(
+                        edge_list[target_v].begin(),
+                        edge_list[target_v].end(),
+                        edge
+                    );
+                    edge_list[curr_v].erase(it_l);
+                    edge_list[target_v].erase(it_r);
+
+                    std::unordered_set<int> s_targets;
+                    for (const Edge &neighbor : edge_list[edge.order_s]) {
+                        s_targets.insert(neighbor.order_e);
+                    }
+
+                    for (const Edge &neighbor : edge_list[edge.order_e]) {
+                        auto it = std::find(
+                            edge_list[neighbor.order_e].begin(),
+                            edge_list[neighbor.order_e].end(),
+                            neighbor
+                        );
+
+                        if (s_targets.find(neighbor.order_e) == s_targets.end()) {
+                            it->order_e = edge.order_s;
+                            edge_list[edge.order_s].push_back(Edge(edge.order_s, neighbor.order_e));
+                        } else {
+                            edge_list[neighbor.order_e].erase(it);
+                        }
+                    }
+                    edge_list[edge.order_e].clear();
+
+                    float w_s = curr_weights[curr_v], w_e = curr_weights[target_v];
+                    float sum_w = w_s + w_e;
+                    float reciprocal_sum_w = 1 / sum_w;
+                    for (int i = 0; i < ndims; i++) {
+                        curr_features[ndims * next_v + i] = (
+                            curr_features[ndims * curr_v + i] * w_s +
+                            curr_features[ndims * target_v + i] * w_e
+                        ) * reciprocal_sum_w;
+                        /*
+                        if (std::isnan(sum_w) || std::isnan(curr_features[ndims * next_v + i])) {
+                            std::cerr << "nan found on " << curr_v << " <=> " << target_v << "\n";
+                            std::cerr << "w_s " << w_s << "\n";
+                            std::cerr << "w_e " << w_e << "\n";
+                            std::cerr << "reciprocal_sum_w " << reciprocal_sum_w << "\n";
+                            std::cerr << "curr_features[ndims * curr_v + i] " << curr_features[ndims * curr_v + i] << "\n";
+                            std::cerr << "curr_features[ndims * target_v + i] " << curr_features[ndims * target_v + i] << "\n";
+                            std::cerr << "curr_features[ndims * next_v + i] " << curr_features[ndims * next_v + i] << "\n";
+                            abort();
+                        }
+                        */
+                    }
+
+                    int next_area = curr_component_area[curr_v] + curr_component_area[target_v];
+                    bool next_mergable = curr_mergable[target_v];
+                    curr_weights[next_v] = sum_w;
+                    curr_component_area[next_v] = next_area;
+                    curr_mergable[next_v] = next_mergable;
+                    if (next_mergable) {
+                        q.push_back(next_v);
+                    }
+                }
+            }
+            auto t4 = Clock::now();
+            // std::cerr << "num_component_complex: " << disjoint_set.flatten()->num_components << "\n";
+            std::vector<label_no_t> result(num_components, 0xFFFF);
+
+            label_no_t last_new_label = 0;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (!mergable_component_map[component_no]) {
+                    result[component_no] = last_new_label++;
+                }
+            }
+            for (int order : recovered_list) {
+                component_no_t root_component_no = component_of_interest_nos[disjoint_set.find(order)];
+                result[root_component_no] = last_new_label++;
+            }
+
+            if (strict) {
+                if (last_new_label > max_label_size) {
+                    std::cerr << "== Invariance assertion(last_new_label > max_label_size) failed ==\n" ;
+                    abort();
+                }
+            }
+
+            for (int order = 0; order < num_components_of_interest; order++) {
+                if (!is_component_mergable[order]) {
+                    component_no_t component_no = component_of_interest_nos[order];
+                    component_no_t root_component_no = component_of_interest_nos[disjoint_set.find(order)];
+                    result[root_component_no] = result[component_no];
+                }
+            }
+            for (int order = 0; order < num_components_of_interest; order++) {
+                if (is_component_mergable[order]) {
+                    component_no_t component_no = component_of_interest_nos[order];
+                    component_no_t root_component_no = component_of_interest_nos[disjoint_set.find(order)];
+                    result[component_no] = result[root_component_no];
+                }
+            }
+            auto t5 = Clock::now();
+
+            // std::cerr << "    features: " << micro(t1 - t0) << "us" << std::endl;
+            // std::cerr << "    get_comp_groups: " << micro(t21 - t20) << "us" << std::endl;
+            // std::cerr << "    get_edges: " << micro(t2 - t21) << "us" << std::endl;
+            // std::cerr << "    queueing: " << micro(t4 - t3) << "us" << std::endl;
+            // std::cerr << "    writeback_comp: " << micro(t5 - t4) << "us" << std::endl;
             return result;
         }
 
@@ -889,21 +1127,20 @@ namespace cca {
                 strict) {};
 
     void ConnectivityEnforcer::execute(label_no_t *out) {
-        // auto t0 = Clock::now();
+        auto t0 = Clock::now();
         DisjointSet disjoint_set;
         assign_disjoint_set(segment_set, disjoint_set);
-        // auto t1 = Clock::now();
+        auto t1 = Clock::now();
         std::unique_ptr<ComponentSet> cc_set { disjoint_set.flatten() };
-        // auto t3 = Clock::now();
+        auto t2 = Clock::now();
 
         AdjMerger adj_merger(segment_set, *cc_set, max_label_size, kernel_fn, min_threshold, strict);
+        auto t3 = Clock::now();
+        std::vector<label_no_t> substitute = adj_merger.run_greedy_agglomerative_clustering();// adj_merger.run_simple(); // adj_merger.run_agglomerative_clustering();// adj_merger.run_simple();
 
-        std::vector<label_no_t> substitute = adj_merger.run_prim();// adj_merger.run_simple(); // adj_merger.run_agglomerative_clustering();// adj_merger.run_simple();
-
-        // auto t4 = Clock::now();
+        auto t4 = Clock::now();
 
 
-        // auto t5 = Clock::now();
         int width = segment_set.get_width(), height = segment_set.get_height();
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
@@ -919,13 +1156,12 @@ namespace cca {
                 }
             }
         }
-
-        // auto t6 = Clock::now();
+        auto t5 = Clock::now();
 
         // std::cerr << "  disjoint: " << micro(t1 -t0) << "us" << std::endl;
-        // std::cerr << "  flatten: " << micro(t3 - t1) << "us" << std::endl;
-        // std::cerr << "  unlabel_comp: " << micro(t4 - t3) << "us" << std::endl;
-        // std::cerr << "  adj: " << micro(t5 - t4) << "us" << std::endl;
-        // std::cerr << "  writeback_comp: " << micro(t6 - t5) << "us" << std::endl;
+        // std::cerr << "  flatten: " << micro(t2 - t1) << "us" << std::endl;
+        // std::cerr << "  init comp: " << micro(t3 - t2) << "us" << std::endl;
+        // std::cerr << "  aggclustering: " << micro(t4 - t3) << "us" << std::endl;
+        // std::cerr << "  writeback_comp: " << micro(t5 - t4) << "us" << std::endl;
     }
 };
