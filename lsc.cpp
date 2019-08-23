@@ -352,18 +352,19 @@ namespace fslic {
                 float* __restrict my_out = out;
                 std::fill_n(my_out, ndims, 0.0f);
 
-                float weight = 0;
+                float total_weight = 0;
                 for (int i = 0; i < size; i++) {
                     const cca::RowSegment& seg = *segments[i];
                     for (int x = seg.x; x < seg.x_end; x++) {
+                        float weight = image_weights[seg.y * W + x];
                         for (int dim = 0; dim < 10; dim++) {
-                            my_out[dim] += image_features[dim][seg.y * W + x];
+                            my_out[dim] += weight * image_features[dim][seg.y * W + x];
                         }
-                        weight += image_weights[seg.y * W + x];
+                        total_weight += weight;
                     }
                 }
-                for (int i = 0; i < ndims; i++) my_out[i] /= weight;
-                *out_weight = weight;
+                for (int i = 0; i < ndims; i++) my_out[i] /= total_weight;
+                *out_weight = total_weight;
             }
         };
         return std::unique_ptr<cca::kernel_function> { new lsc_cca_kernel_function(image_features, image_weights, W) };
