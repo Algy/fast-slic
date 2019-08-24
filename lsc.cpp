@@ -32,24 +32,24 @@ namespace fslic {
 
         int len = H * W;
         int aligned_len = simd_helper::align_to_next(len);
+        int aligned_K = simd_helper::align_to_next(K);
 
         #ifdef FAST_SLIC_TIMER
         auto t0 = Clock::now();
         #endif
         if (uint8_memory_pool) delete [] uint8_memory_pool;
-        uint8_memory_pool = new uint8_t[3 * len];
+        uint8_memory_pool = new uint8_t[3 * aligned_len];
         if (float_memory_pool) delete [] uint8_memory_pool;
-        float_memory_pool = new float[11 * aligned_len + 10 * K];
+        float_memory_pool = new float[11 * aligned_len + 10 * aligned_K];
 
         image_planes[0] = &uint8_memory_pool[0];
-        image_planes[1] = &uint8_memory_pool[len];
-        image_planes[2] = &uint8_memory_pool[2 * len];
+        image_planes[1] = &uint8_memory_pool[aligned_len];
+        image_planes[2] = &uint8_memory_pool[2 * aligned_len];
         for (int i = 0; i < 10; i++) {
             image_features[i] = &float_memory_pool[i * aligned_len];
-            centroid_features[i] = &float_memory_pool[11 * aligned_len + i * K];
+            centroid_features[i] = &float_memory_pool[11 * aligned_len + i * aligned_K];
         }
         image_weights = &float_memory_pool[10 * aligned_len];
-
 
         #ifdef FAST_SLIC_TIMER
         auto t1 = Clock::now();
