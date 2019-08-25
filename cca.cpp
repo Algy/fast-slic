@@ -10,6 +10,7 @@
 #include <limits>
 #include <list>
 #include <ctime>
+#include <queue>
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -18,21 +19,37 @@ static int micro(T o) {
     return std::chrono::duration_cast<std::chrono::microseconds>(o).count();
 }
 
+
 namespace cca {
+    struct component_pair {
+        component_no_t component_no;
+        int area;
+        component_pair(component_no_t component_no, int area) : component_no(component_no), area(area) {};
+    };
+
+    struct component_pair_cmp {
+        bool operator()(const component_pair &lhs, const component_pair &rhs) {
+            return lhs.area > rhs.area;
+        }
+    };
+
     class AdjMerger {
     private:
         const RowSegmentSet &segment_set;
         const ComponentSet &cc_set;
         const int* component_area; // CompoenntNo -> int
         std::vector<int> largest_adj_area; // ComponentNo -> area
-        std::vector<label_no_t> largest_adj_label; // ComponentNo -> Label
+        std::vector<component_no_t> largest_adj_comp; // ComponentNo -> Label
+        int max_label_size;
+        int min_threshold;
     public:
         int size() { return largest_adj_area.size(); };
-        AdjMerger(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const int* component_area) :
+        AdjMerger(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const int* component_area, int max_label_size, int min_threshold) :
                 segment_set(segment_set), cc_set(cc_set), component_area(component_area),
-                largest_adj_area(cc_set.get_num_components()),
-                largest_adj_label(cc_set.get_num_components(), 0xFFFF) {};
-        void update(segment_no_t target_ix, segment_no_t adj_ix, label_no_t label) {
+                largest_adj_area(cc_set.get_num_components(), std::numeric_limits<int>::min()),
+                largest_adj_comp(cc_set.get_num_components(), -1),
+                max_label_size(max_label_size), min_threshold(min_threshold) {};
+        void update(segment_no_t target_ix, segment_no_t adj_ix) {
             component_no_t target = cc_set.component_assignment[target_ix];
             component_no_t adj = cc_set.component_assignment[adj_ix];
 
@@ -40,7 +57,7 @@ namespace cca {
             int adj_area = component_area[adj];
             if (target_largest_area < adj_area) {
                 target_largest_area = adj_area;
-                largest_adj_label[target] = label;
+                largest_adj_comp[target] = adj;
             }
         };
 
@@ -51,22 +68,106 @@ namespace cca {
                 #pragma omp for
                 for (int i = 0; i < num_components; i++) {
                     int max_area = std::numeric_limits<int>::min();
-                    label_no_t max_label = 0xFFFF;
+                    component_no_t max_comp = -1;
                     for (const auto &local_merger : local_mergers) {
                         int curr_area = local_merger->largest_adj_area[i];
                         if (max_area < curr_area) {
                             max_area = curr_area;
-                            max_label = local_merger->largest_adj_label[i];
+                            max_comp = local_merger->largest_adj_comp[i];
                         }
                     }
                     largest_adj_area[i] = max_area;
-                    largest_adj_label[i] = max_label;
+                    largest_adj_comp[i] = max_comp;
                 }
             }
         };
 
         void copy_back(std::vector<label_no_t> &dest) {
-            dest = largest_adj_label;
+            int num_components = cc_set.num_components;
+            dest.resize(num_components);
+            std::vector<int> mergable_map(num_components, 0);
+            const auto &data = segment_set.get_data();
+
+            int num_mergables = 0;
+
+            label_no_t last_new_label = 0;
+            std::vector<component_pair> recovered_component_pairs;
+            #pragma omp parallel
+            {
+                #pragma omp for
+                for (int i = 0; i < num_components; i++) {
+                    if (data[cc_set.component_leaders[i]].label == 0xFFFF) {
+                        mergable_map[i] = 1;
+                    }
+                }
+
+                #pragma omp for reduction(+:num_mergables)
+                for (int i = 0; i < num_components; i++) {
+                    num_mergables += mergable_map[i];
+                }
+
+                #pragma omp single
+                {
+                    for (int i = 0; i < num_components; i++) {
+                        if (!mergable_map[i]) {
+                            dest[i] = last_new_label++;
+                        }
+                    }
+                }
+
+                int recovery_capacity = max_label_size - num_mergables;
+                if (recovery_capacity > 0) {
+                    std::vector<component_pair> local_queue;
+                    #pragma omp for
+                    for (int i = 0; i < num_components; i++) {
+                        if (mergable_map[i]) {
+                            local_queue.push_back(component_pair(i, component_area[i]));
+                            std::push_heap(local_queue.begin(), local_queue.end(), component_pair_cmp());
+                            if (local_queue.size() > recovery_capacity) {
+                                std::pop_heap(local_queue.begin(), local_queue.end(), component_pair_cmp());
+                                local_queue.pop_back();
+                            }
+                        }
+                    }
+                    #pragma omp critical
+                    recovered_component_pairs.insert(
+                        recovered_component_pairs.end(),
+                        local_queue.begin(),
+                        local_queue.end()
+                    );
+                    #pragma omp barrier
+                    #pragma omp single
+                    {
+                        std::nth_element(
+                            recovered_component_pairs.begin(),
+                            recovered_component_pairs.begin() + recovery_capacity,
+                            recovered_component_pairs.end(),
+                            component_pair_cmp()
+                        );
+
+                        auto end = recovered_component_pairs.begin() + recovery_capacity;
+                        for (auto it = recovered_component_pairs.begin(); it != end; ++it) {
+                            if (it->area < min_threshold) break;
+                            dest[it->component_no] = last_new_label++;
+                            mergable_map[it->component_no] = false;
+                        }
+                    }
+                }
+
+                #pragma omp for
+                for (int i = 0; i < num_components; i++) {
+                    if (mergable_map[i]) {
+                        component_no_t adj_comp = largest_adj_comp[i];
+                        if (adj_comp != -1) {
+                            dest[i] = dest[adj_comp];
+                        } else {
+                            // if (segment_set.get_data()[cc_set.component_leaders[i]].get_length() != 0)
+                            //    abort();
+                            dest[i] = 0xFFFF;
+                        }
+                    }
+                }
+            }
         }
     };
 
@@ -191,7 +292,7 @@ namespace cca {
     }
 
 
-    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const std::vector<int> &component_area, std::vector<label_no_t> &dest) {
+    void unlabeled_adj(const RowSegmentSet &segment_set, const ComponentSet &cc_set, const std::vector<int> &component_area, int max_label_size, int min_threshold, std::vector<label_no_t> &dest) {
         // auto t01 = Clock::now();
         int num_components = cc_set.get_num_components();
         const auto &row_offsets = segment_set.get_row_offsets();
@@ -203,7 +304,7 @@ namespace cca {
         // auto t0 = Clock::now();
         #pragma omp parallel
         {
-            AdjMerger *local_merger = new AdjMerger(segment_set, cc_set, &component_area[0]);
+            AdjMerger *local_merger = new AdjMerger(segment_set, cc_set, &component_area[0], max_label_size, min_threshold);
             #pragma omp critical
             local_mergers.push_back(std::unique_ptr<AdjMerger>(local_merger));
             #pragma omp barrier
@@ -217,9 +318,9 @@ namespace cca {
                     auto &left_seg = data[off - 1];
                     auto &curr_seg = data[off];
                     if (left_seg.label == 0xFFFF && curr_seg.label != 0xFFFF) {
-                        local_merger->update(off - 1, off, curr_seg.label);
+                        local_merger->update(off - 1, off);
                     } else if (left_seg.label != 0xFFFF && curr_seg.label == 0xFFFF) {
-                        local_merger->update(off, off - 1, left_seg.label);
+                        local_merger->update(off, off - 1);
                     }
                 }
             }
@@ -239,9 +340,9 @@ namespace cca {
                     } else {
                         // if control flows through here, it means prev and curr overlap
                         if (up_seg.label != 0xFFFF && curr_seg.label == 0xFFFF) {
-                            local_merger->update(curr_ix, up_ix, up_seg.label);
+                            local_merger->update(curr_ix, up_ix);
                         } else if (up_seg.label == 0xFFFF && curr_seg.label != 0xFFFF) {
-                            local_merger->update(up_ix, curr_ix, curr_seg.label);
+                            local_merger->update(up_ix, curr_ix);
                         }
                         if (data[curr_ix].x_end < data[up_ix].x_end) {
                             curr_ix++;
@@ -254,7 +355,7 @@ namespace cca {
         }
         // // auto t1 = Clock::now();
 
-        std::unique_ptr<AdjMerger> merger { new AdjMerger(segment_set, cc_set, &component_area[0]) };
+        std::unique_ptr<AdjMerger> merger { new AdjMerger(segment_set, cc_set, &component_area[0], max_label_size, min_threshold) };
         merger->concat(local_mergers);
 
         // auto t2 = Clock::now();
@@ -363,6 +464,7 @@ namespace cca {
     }
 
     void ConnectivityEnforcer::execute(label_no_t *out) {
+
         // auto t0 = Clock::now();
         DisjointSet disjoint_set;
         assign_disjoint_set(segment_set, disjoint_set);
@@ -373,45 +475,31 @@ namespace cca {
         estimate_component_area(segment_set, *cc_set, component_area); // ComponentNo -> int (area)
         // auto t3 = Clock::now();
 
-        std::vector<component_no_t> largest_component(max_label_size, -1); // Label -> ComponentNo
-        std::vector<int> largest_area(max_label_size, 0); // Label -> int
-
         int W = segment_set.get_width(), H = segment_set.get_height();
+        int num_components = cc_set->num_components;
+        std::vector<component_pair> cpairs;
+        cpairs.reserve(num_components);
+        for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+            cpairs.push_back(component_pair(component_no, component_area[component_no]));
+        }
+
         if (strict) {
-            #pragma omp parallel
-            {
-                auto &data = segment_set.get_mutable_data();
-                int num_components = cc_set->get_num_components();
-                const auto &row_offsets = segment_set.get_row_offsets();
-                std::vector<int> local_largest_area(max_label_size, 0); // Label -> int
-                std::vector<component_no_t> local_largest_component(max_label_size, -1); // Label -> ComponentNo
-                #pragma omp for
-                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-                    segment_no_t segment_leader = cc_set->component_leaders[component_no];
-                    label_no_t label = data[segment_leader].label;
-                    if (label == 0xFFFF) continue;
-                    int area = component_area[component_no];
-                    if (area >= min_threshold && local_largest_area[label] < area) {
-                        local_largest_area[label] = area;
-                        local_largest_component[label] = component_no;
-                    }
+            auto &data = segment_set.get_mutable_data();
+            std::vector<bool> cutoff_map(num_components, false);
+            int cutoff = num_components < max_label_size? num_components : max_label_size;
+            std::nth_element(cpairs.begin(), cpairs.begin() + cutoff, cpairs.end(), component_pair_cmp());
+            for (auto it = cpairs.begin() + cutoff; it != cpairs.end(); ++it) {
+                cutoff_map[it->component_no] = true;
+            }
+            for (auto it = cpairs.begin(); it != cpairs.begin() + cutoff; ++it) {
+                if (it->area < min_threshold) {
+                    cutoff_map[it->component_no] = true;
                 }
-
-                #pragma omp critical
-                for (int i = 0; i < max_label_size; i++) {
-                    if (largest_area[i] < local_largest_area[i]) {
-                        largest_area[i] = local_largest_area[i];
-                        largest_component[i] = local_largest_component[i];
-                    }
-                }
-                #pragma omp barrier
-
-
-                #pragma omp for
-                for (int ix = 0; ix < data.size(); ix++) {
-                    if (largest_component[data[ix].label] != cc_set->component_assignment[ix]) {
-                        data[ix].label = 0xFFFF;
-                    }
+            }
+            #pragma omp parallel for
+            for (int ix = 0; ix < data.size(); ix++) {
+                if (cutoff_map[cc_set->component_assignment[ix]]) {
+                    data[ix].label = 0xFFFF;
                 }
             }
         } else {
@@ -423,6 +511,7 @@ namespace cca {
                 }
             }
         }
+
         segment_set.collapse();
 
         // auto t4 = Clock::now();
@@ -433,18 +522,17 @@ namespace cca {
         assign_disjoint_set(segment_set, disjoint_set);
         cc_set = disjoint_set.flatten();
         estimate_component_area(segment_set, *cc_set, component_area);
-        unlabeled_adj(segment_set, *cc_set, component_area, adj);
+        std::vector<bool> mergable_map(num_components, false);
+        unlabeled_adj(segment_set, *cc_set, component_area, max_label_size, min_threshold, adj);
 
         // auto t5 = Clock::now();
         int width = segment_set.get_width(), height = segment_set.get_height();
         const auto &row_offsets = segment_set.get_row_offsets();
         const auto &data = segment_set.get_data();
-
         #pragma omp parallel for
         for (int i = 0; i < height; i++) {
             for (int off = row_offsets[i]; off < row_offsets[i + 1]; off++) {
                 const RowSegment &segment = data[off];
-                if (segment.label != 0xFFFF) continue;
                 component_no_t component_no = cc_set->component_assignment[off];
                 label_no_t label_subs = adj[component_no];
                 if (label_subs == 0xFFFF) label_subs = 0;
