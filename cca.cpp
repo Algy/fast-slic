@@ -235,7 +235,7 @@ namespace cca {
             }
             if (subs_label == 0xFFFF) {
                 subs_label = 0;
-                std::cerr << "leader_y " << leader_index << "\n";
+                // std::cerr << "leader_y " << leader_index << "\n";
             }
             substitute[component_no] = subs_label;
         }
