@@ -11,6 +11,7 @@
 #include <list>
 #include <ctime>
 #include <queue>
+#include <deque>
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -24,12 +25,14 @@ namespace cca {
     struct component_pair {
         component_no_t component_no;
         int area;
-        component_pair(component_no_t component_no, int area) : component_no(component_no), area(area) {};
+        label_no_t label;
+        component_pair(component_no_t component_no, int area, label_no_t label)
+            : component_no(component_no), area(area), label(label) {};
     };
 
-    struct component_pair_cmp {
-        bool operator()(const component_pair &lhs, const component_pair &rhs) {
-            return lhs.area > rhs.area;
+    struct cmp_area_pointer_desc {
+        bool operator()(const component_pair *lhs, const component_pair *rhs) {
+            return lhs->area > rhs->area;
         }
     };
 
@@ -84,79 +87,61 @@ namespace cca {
 
         void copy_back(std::vector<label_no_t> &dest) {
             int num_components = cc_set.num_components;
-            dest.resize(num_components);
-            std::vector<int> mergable_map(num_components, 0);
-            const auto &data = segment_set.get_data();
+            dest.resize(num_components, 0xFFFF);
+            const auto& data = segment_set.get_data();
 
-            int num_mergables = 0;
+            std::vector<bool> label_taken(max_label_size, false);
+            #pragma omp parallel for
+            for (int i = 0; i < num_components; i++) {
+                label_no_t label = data[cc_set.component_leaders[i]].label;
+                if (label != 0xFFFF) {
+                    dest[i] = label;
+                    // label_taken[label] = true;
+                }
+            }
+            /*
+            std::deque<label_no_t> labels_not_taken;
+            for (int i = 0; i < max_label_size; i++) {
+                if (!label_taken[i]) {
+                    labels_not_taken.push_back((label_no_t)i);
+                }
+            }
 
-            label_no_t last_new_label = 0;
-            std::vector<component_pair> recovered_component_pairs;
+            if (!labels_not_taken.empty()) {
+                int num_components = cc_set.num_components;
+                std::vector<component_pair> cpairs_orig;
+                std::vector<component_pair*> cpairs;
+                const auto &data = segment_set.get_data();
+                for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                    label_no_t label = data[cc_set.component_leaders[component_no]].label;
+                    if (label != 0xFFFF) continue;
+                    cpairs_orig.push_back(component_pair(component_no, component_area[component_no], label));
+                }
+                for (auto &c : cpairs_orig)
+                    cpairs.push_back(&c);
+                int cutoff = (int)labels_not_taken.size();
+                if (cutoff > (int)cpairs.size()) cutoff = (int)cpairs.size();
+                std::partial_sort(
+                    cpairs.begin(),
+                    cpairs.begin() + cutoff,
+                    cpairs.end(),
+                    cmp_area_pointer_desc()
+                );
+                for (int i = 0; i < cutoff; i++) {
+                    component_pair* cpair = cpairs[i];
+                    label_no_t label = cpair->label;
+                    int area = cpair->area;
+                    if (area < min_threshold) break;
+                    dest[cpair->component_no] = labels_not_taken[i];
+                }
+            }
+            */
+
             #pragma omp parallel
             {
                 #pragma omp for
                 for (int i = 0; i < num_components; i++) {
-                    if (data[cc_set.component_leaders[i]].label == 0xFFFF) {
-                        mergable_map[i] = 1;
-                    }
-                }
-
-                #pragma omp for reduction(+:num_mergables)
-                for (int i = 0; i < num_components; i++) {
-                    num_mergables += mergable_map[i];
-                }
-
-                #pragma omp single
-                {
-                    for (int i = 0; i < num_components; i++) {
-                        if (!mergable_map[i]) {
-                            dest[i] = last_new_label++;
-                        }
-                    }
-                }
-
-                int recovery_capacity = max_label_size - num_mergables;
-                if (recovery_capacity > 0) {
-                    std::vector<component_pair> local_queue;
-                    #pragma omp for
-                    for (int i = 0; i < num_components; i++) {
-                        if (mergable_map[i]) {
-                            local_queue.push_back(component_pair(i, component_area[i]));
-                            std::push_heap(local_queue.begin(), local_queue.end(), component_pair_cmp());
-                            if (local_queue.size() > recovery_capacity) {
-                                std::pop_heap(local_queue.begin(), local_queue.end(), component_pair_cmp());
-                                local_queue.pop_back();
-                            }
-                        }
-                    }
-                    #pragma omp critical
-                    recovered_component_pairs.insert(
-                        recovered_component_pairs.end(),
-                        local_queue.begin(),
-                        local_queue.end()
-                    );
-                    #pragma omp barrier
-                    #pragma omp single
-                    {
-                        std::nth_element(
-                            recovered_component_pairs.begin(),
-                            recovered_component_pairs.begin() + recovery_capacity,
-                            recovered_component_pairs.end(),
-                            component_pair_cmp()
-                        );
-
-                        auto end = recovered_component_pairs.begin() + recovery_capacity;
-                        for (auto it = recovered_component_pairs.begin(); it != end; ++it) {
-                            if (it->area < min_threshold) break;
-                            dest[it->component_no] = last_new_label++;
-                            mergable_map[it->component_no] = false;
-                        }
-                    }
-                }
-
-                #pragma omp for
-                for (int i = 0; i < num_components; i++) {
-                    if (mergable_map[i]) {
+                    if (dest[i] == 0xFFFF) {
                         component_no_t adj_comp = largest_adj_comp[i];
                         if (adj_comp != -1) {
                             dest[i] = dest[adj_comp];
@@ -464,7 +449,6 @@ namespace cca {
     }
 
     void ConnectivityEnforcer::execute(label_no_t *out) {
-
         // auto t0 = Clock::now();
         DisjointSet disjoint_set;
         assign_disjoint_set(segment_set, disjoint_set);
@@ -476,68 +460,92 @@ namespace cca {
         // auto t3 = Clock::now();
 
         int W = segment_set.get_width(), H = segment_set.get_height();
-        int num_components = cc_set->num_components;
-        std::vector<component_pair> cpairs;
-        cpairs.reserve(num_components);
-        for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-            cpairs.push_back(component_pair(component_no, component_area[component_no]));
-        }
-
-        if (strict) {
-            auto &data = segment_set.get_mutable_data();
-            std::vector<bool> cutoff_map(num_components, false);
-            int cutoff = num_components < max_label_size? num_components : max_label_size;
-            std::nth_element(cpairs.begin(), cpairs.begin() + cutoff, cpairs.end(), component_pair_cmp());
-            for (auto it = cpairs.begin() + cutoff; it != cpairs.end(); ++it) {
-                cutoff_map[it->component_no] = true;
+        std::deque<label_no_t> labels_not_taken;
+        {
+            int num_components = cc_set->num_components;
+            std::vector<component_pair> cpairs_orig;
+            std::vector<component_pair*> cpairs;
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                label_no_t label = segment_set.get_data()[cc_set->component_leaders[component_no]].label;
+                cpairs_orig.push_back(component_pair(component_no, component_area[component_no], label));
             }
-            for (auto it = cpairs.begin(); it != cpairs.begin() + cutoff; ++it) {
-                if (it->area < min_threshold) {
-                    cutoff_map[it->component_no] = true;
+            for (auto &c : cpairs_orig)
+                cpairs.push_back(&c);
+
+            int cutoff = max_label_size;
+            if (cutoff > (int)cpairs.size()) cutoff = (int)cpairs.size();
+            std::partial_sort(cpairs.begin(), cpairs.begin() + cutoff, cpairs.end(), cmp_area_pointer_desc());
+            std::vector<label_no_t> substitute(num_components, 0xFFFF);
+            std::deque<component_no_t> recoverables;
+            std::vector<bool> label_taken(max_label_size, false);
+
+            for (int i = 0; i < cutoff; i++) {
+                component_pair* cpair = cpairs[i];
+                label_no_t label = cpair->label;
+                int area = cpair->area;
+                if (label == 0xFFFF) continue;
+                if (area < min_threshold) break;
+
+                if (!label_taken[label]) {
+                    label_taken[label] = true;
+                    substitute[cpair->component_no] = label;
+                } else {
+                    recoverables.push_back(cpair->component_no);
                 }
             }
+
+            for (int k = 0; k < max_label_size; k++) {
+                if (!label_taken[k]) {
+                    labels_not_taken.push_back(k);
+                }
+            }
+
+            // reallocate
+            for (auto component_no : recoverables) {
+                if (labels_not_taken.empty()) break;
+                label_no_t label = labels_not_taken.front();
+                labels_not_taken.pop_front();
+                label_taken[label] = true;
+                substitute[component_no] = label;
+            }
+
+            auto &data = segment_set.get_mutable_data();
+            const auto &row_offsets = segment_set.get_row_offsets();
+            int height = segment_set.get_height(), width = segment_set.get_width();
             #pragma omp parallel for
             for (int ix = 0; ix < data.size(); ix++) {
-                if (cutoff_map[cc_set->component_assignment[ix]]) {
-                    data[ix].label = 0xFFFF;
-                }
-            }
-        } else {
-            auto &data = segment_set.get_mutable_data();
-            #pragma omp parallel for
-            for (int ix = 0; ix < data.size(); ix++) {
-                if (component_area[cc_set->component_assignment[ix]] < min_threshold) {
-                    data[ix].label = 0xFFFF;
-                }
+                RowSegment &segment = data[ix];
+                label_no_t label = substitute[cc_set->component_assignment[ix]];
+                segment.label = label;
             }
         }
-
         segment_set.collapse();
 
         // auto t4 = Clock::now();
-        std::vector<label_no_t> adj; // ComponentNo -> LabelNo
-        disjoint_set.clear();
-        component_area.clear();
+        {
+            disjoint_set.clear();
+            component_area.clear();
 
-        assign_disjoint_set(segment_set, disjoint_set);
-        cc_set = disjoint_set.flatten();
-        estimate_component_area(segment_set, *cc_set, component_area);
-        std::vector<bool> mergable_map(num_components, false);
-        unlabeled_adj(segment_set, *cc_set, component_area, max_label_size, min_threshold, adj);
-
-        // auto t5 = Clock::now();
-        int width = segment_set.get_width(), height = segment_set.get_height();
-        const auto &row_offsets = segment_set.get_row_offsets();
-        const auto &data = segment_set.get_data();
-        #pragma omp parallel for
-        for (int i = 0; i < height; i++) {
-            for (int off = row_offsets[i]; off < row_offsets[i + 1]; off++) {
-                const RowSegment &segment = data[off];
-                component_no_t component_no = cc_set->component_assignment[off];
-                label_no_t label_subs = adj[component_no];
-                if (label_subs == 0xFFFF) label_subs = 0;
-                for (int j = segment.x; j < segment.x_end; j++) {
-                    out[i * width + j] = label_subs;
+            assign_disjoint_set(segment_set, disjoint_set);
+            cc_set = disjoint_set.flatten();
+            estimate_component_area(segment_set, *cc_set, component_area);
+            std::vector<label_no_t> substitute;
+            unlabeled_adj(segment_set, *cc_set, component_area, max_label_size, min_threshold, substitute);
+            // auto t5 = Clock::now();
+            int width = segment_set.get_width(), height = segment_set.get_height();
+            const auto &row_offsets = segment_set.get_row_offsets();
+            const auto &data = segment_set.get_data();
+            #pragma omp parallel for
+            for (int i = 0; i < height; i++) {
+                for (int off = row_offsets[i]; off < row_offsets[i + 1]; off++) {
+                    const RowSegment &segment = data[off];
+                    component_no_t component_no = cc_set->component_assignment[off];
+                    label_no_t label_subs = data[off].label;
+                    if (label_subs == 0xFFFF) label_subs = substitute[component_no];
+                    if (label_subs == 0xFFFF) label_subs = 0;
+                    for (int j = segment.x; j < segment.x_end; j++) {
+                        out[i * width + j] = label_subs;
+                    }
                 }
             }
         }
