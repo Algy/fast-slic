@@ -11,47 +11,6 @@ namespace cca {
     class DisjointSet;
     class ComponentSet;
 
-    struct RowSegment {
-        label_no_t label;
-        int16_t x;
-        int16_t x_end;
-        RowSegment() {};
-        RowSegment(label_no_t label, int16_t x, int16_t x_end) : label(label), x(x), x_end(x_end) {};
-        int16_t get_length() const { return x_end - x; };
-    };
-
-    class RowSegmentSet {
-    private:
-        std::vector<RowSegment> data;
-        std::vector<int> row_offsets;
-        int width;
-        int first_row_idx;
-    public:
-        RowSegmentSet() { clear(); };
-        RowSegmentSet& operator+=(const RowSegmentSet &rhs);
-        void clear() { row_offsets.clear(); row_offsets.push_back(0); data.clear(); };
-        void set_from_2d_array(const label_no_t *labels, int H, int W);
-        int get_height() const { return (int)row_offsets.size() - 1; };
-        int get_width() const { return width; };
-        int size() const { return (int)data.size(); };
-
-        const std::vector<RowSegment>& get_data() const { return data; };
-        std::vector<RowSegment>& get_mutable_data() { return data; };
-        const std::vector<int>& get_row_offsets() const { return row_offsets; };
-        void collapse();
-    };
-
-    void assign_disjoint_set(const RowSegmentSet &segment_set, DisjointSet &dest);
-    void estimate_component_area(const RowSegmentSet &segment_set, const ComponentSet &cc_set, std::vector<int> &dest);
-    void unlabeled_adj(
-        const RowSegmentSet &segment_set,
-        const ComponentSet &cc_set,
-        const std::vector<int> &component_area,
-        int max_label_size,
-        int min_threshold,
-        std::vector<label_no_t> &dest
-    );
-
     class DisjointSet {
     public:
         int size;
@@ -126,11 +85,10 @@ namespace cca {
 
     class ConnectivityEnforcer {
     private:
+        int H, W;
         int min_threshold;
         int max_label_size;
         bool strict;
-        std::vector<int> label_area_tbl;
-        RowSegmentSet segment_set;
     public:
         ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict = true);
         void execute(label_no_t *out);
