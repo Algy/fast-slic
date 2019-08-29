@@ -8,14 +8,12 @@ typedef std::chrono::high_resolution_clock Clock;
 
 typedef uint16_t cluster_no_t;
 typedef struct Cluster {
-    // 7 bytes
-    uint16_t y;
-    uint16_t x;
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    // 1 byte dummy data
-    uint8_t reserved[1];
+    float y;
+    float x;
+    float r;
+    float g;
+    float b;
+    float a;
 
     cluster_no_t number; // 2 bytes
     uint8_t is_active;

@@ -5,12 +5,12 @@ from libcpp cimport bool
 
 cdef extern from "fast-slic-common.h":
     ctypedef struct Cluster:
-        uint16_t y
-        uint16_t x;
-        uint8_t r;
-        uint8_t g;
-        uint8_t b;
-        uint8_t reserved[1]
+        float y
+        float x
+        float r
+        float g
+        float b
+        float a
         uint16_t number
         uint8_t is_active
         uint32_t num_members
