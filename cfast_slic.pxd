@@ -68,6 +68,9 @@ cdef extern from "context.h" namespace "fslic":
     cdef cppclass ContextRealDistL2(ContextRealDist):
         ContextRealDistL2(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
+    cdef cppclass ContextRealDistNoQ(ContextRealDist):
+        ContextRealDistNoQ(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+
     cdef cppclass ContextBuilder:
         ContextBuilder()
         ContextBuilder(const char* arch)

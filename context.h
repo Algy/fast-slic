@@ -85,6 +85,7 @@ namespace fslic {
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
         virtual void rgb_to_lab(uint8_t* quad_image, int size);
+        virtual bool centroid_quantization_enabled();
     };
 
     class ContextRealDist : public BaseContext<float> {
@@ -98,6 +99,18 @@ namespace fslic {
     protected:
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
+    };
+
+    class ContextRealDistNoQ : public ContextRealDist {
+    public:
+        using ContextRealDist::ContextRealDist;
+    protected:
+        virtual void assign_clusters(const Cluster **target_clusters, int size);
+        virtual bool centroid_quantization_enabled();
+
+    private:
+        template<bool use_manhattan>
+        void assign_clusters_proto(const Cluster **target_clusters, int size);
     };
 
     class Context : public BaseContext<uint16_t> {

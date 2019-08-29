@@ -214,6 +214,14 @@ cdef class SlicModel:
                     &image[0, 0, 0],
                     c_clusters,
                 )
+            elif self.real_dist_type == 'noq':
+                context_real_dist = new cfast_slic.ContextRealDistNoQ(
+                    H,
+                    W,
+                    K,
+                    &image[0, 0, 0],
+                    c_clusters,
+                )
             else:
                 raise RuntimeError("No such real_dist_type " + repr(self.real_dist_type))
 

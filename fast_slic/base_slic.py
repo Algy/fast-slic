@@ -71,6 +71,10 @@ class SlicRealDistL2(SlicRealDist):
     arch_name = 'standard'
     real_dist_type = 'l2'
 
+class SlicRealDistNoQ(SlicRealDist):
+    arch_name = 'standard'
+    real_dist_type = 'noq'
+
 class LSC(SlicRealDist):
     arch_name = 'standard'
     real_dist_type = 'lsc'

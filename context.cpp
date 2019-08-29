@@ -400,6 +400,7 @@ namespace fslic {
         }
 
 
+        bool centroid_qt = centroid_quantization_enabled();
         for (int k = 0; k < K; k++) {
             if (!cluster_updatable[k]) continue;
             int32_t num_current_members = num_cluster_members[k];
@@ -410,12 +411,25 @@ namespace fslic {
 
             // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
             // But, I intentionally used mean here for the sake of performance.
-            cluster->y = round_int(cluster_acc_vec[5 * k + 0], num_current_members);
-            cluster->x = round_int(cluster_acc_vec[5 * k + 1], num_current_members);
-            cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
-            cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
-            cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
+            if (centroid_qt) {
+                cluster->y = round_int(cluster_acc_vec[5 * k + 0], num_current_members);
+                cluster->x = round_int(cluster_acc_vec[5 * k + 1], num_current_members);
+                cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
+                cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
+                cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
+            } else {
+                cluster->y = (float)cluster_acc_vec[5 * k + 0] / num_current_members;
+                cluster->x = (float)cluster_acc_vec[5 * k + 1] / num_current_members;
+                cluster->r = (float)cluster_acc_vec[5 * k + 2] / num_current_members;
+                cluster->g = (float)cluster_acc_vec[5 * k + 3] / num_current_members;
+                cluster->b = (float)cluster_acc_vec[5 * k + 4] / num_current_members;
+            }
         }
+    }
+
+    template<typename DistType>
+    bool BaseContext<DistType>::centroid_quantization_enabled() {
+        return true;
     }
 
     void ContextRealDistL2::assign_clusters(const Cluster** target_clusters, int size) {
@@ -466,6 +480,57 @@ namespace fslic {
             for (int16_t j = 0; j <= S_2; j++) {
                 float di = coef * (i - S), dj = coef * (j - S);
                 spatial_dist_patch.get(i, j) = di * di + dj * dj;
+            }
+        }
+    }
+
+    bool ContextRealDistNoQ::centroid_quantization_enabled() {
+        return false;
+    }
+
+    void ContextRealDistNoQ::assign_clusters(const Cluster** target_clusters, int size) {
+        if (manhattan_spatial_dist) {
+            assign_clusters_proto<true>(target_clusters, size);
+        } else {
+            assign_clusters_proto<false>(target_clusters, size);
+        }
+    }
+
+    template<bool use_manhattan>
+    void ContextRealDistNoQ::assign_clusters_proto(const Cluster** target_clusters, int size) {
+        float coef = 1.0f / ((float)S / compactness);
+
+        for (int cidx = 0; cidx < size; cidx++) {
+            const Cluster* cluster = target_clusters[cidx];
+            float cluster_y = cluster->y, cluster_x = cluster->x;
+            float cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
+            int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S + 1, H);
+            int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S + 1, W);
+
+            uint16_t cluster_no = cluster->number;
+            for (int i = y_lo; i < y_hi; i++) {
+                if (!valid_subsample_row(i)) continue;
+                const uint8_t* __restrict image_row = quad_image.get_row(i);
+                uint16_t* __restrict assignment_row = assignment.get_row(i);
+                float* __restrict min_dist_row = min_dists.get_row(i);
+                for (int j = x_lo; j < x_hi; j++) {
+                    float dr = image_row[4 * j] - cluster_r,
+                        dg = image_row[4 * j + 1] - cluster_g,
+                        db = image_row[4 * j + 2] - cluster_b,
+                        dy = i - cluster_y,
+                        dx = j - cluster_x;
+
+                    float distance;
+                    if (use_manhattan) {
+                        distance = std::fabs(dr) + std::fabs(dg) + std::fabs(db) + coef * (std::fabs(dx) + std::fabs(dy));
+                    } else {
+                        distance = dr*dr + dg*dg + db*db + (dx*coef)*(dx*coef) + (dy*coef)*(dy*coef);
+                    }
+                    if (min_dist_row[j] > distance) {
+                        min_dist_row[j] = distance;
+                        assignment_row[j] = cluster_no;
+                    }
+                }
             }
         }
     }
