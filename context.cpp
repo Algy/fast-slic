@@ -36,9 +36,17 @@ namespace fslic {
     void BaseContext<DistType>::set_spatial_patch() {
         float coef = 1.0f / ((float)S / compactness);
         int16_t S_2 = 2 * S;
-        for (int16_t i = 0; i <= S_2; i++) {
-            for (int16_t j = 0; j <= S_2; j++) {
-                spatial_dist_patch.get(i, j) = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
+        if (manhattan_spatial_dist) {
+            for (int16_t i = 0; i <= S_2; i++) {
+                for (int16_t j = 0; j <= S_2; j++) {
+                    spatial_dist_patch.get(i, j) = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
+                }
+            }
+        } else {
+            for (int16_t i = 0; i <= S_2; i++) {
+                for (int16_t j = 0; j <= S_2; j++) {
+                    spatial_dist_patch.get(i, j) = (DistType)(coef * hypotf(i - S, j - S));
+                }
             }
         }
     }

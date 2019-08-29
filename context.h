@@ -31,6 +31,7 @@ namespace fslic {
         bool preemptive = false;
         float preemptive_thres = 0.01;
 
+        bool manhattan_spatial_dist = true;
     protected:
         int H, W, K;
         const uint8_t* image;

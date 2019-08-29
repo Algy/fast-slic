@@ -9,9 +9,10 @@ class BaseSlic(object):
                  compactness=20,
                  min_size_factor=0.05,
                  subsample_stride=3,
-                 convert_to_lab=False,
+                 convert_to_lab=True,
                  preemptive=False,
-                 preemptive_thres=0.05):
+                 preemptive_thres=0.05,
+                 manhattan_spatial_dist=True):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
         self.min_size_factor = min_size_factor
@@ -21,6 +22,7 @@ class BaseSlic(object):
         self.convert_to_lab = convert_to_lab
         self._slic_model.preemptive = preemptive
         self._slic_model.preemptive_thres = preemptive_thres
+        self._slic_model.manhattan_spatial_dist = manhattan_spatial_dist
 
     @property
     def convert_to_lab(self):

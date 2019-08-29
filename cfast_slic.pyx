@@ -37,6 +37,7 @@ cdef class SlicModel:
         self.initialized = False
         self.preemptive = False
         self.preemptive_thres = 0.05
+        self.manhattan_spatial_dist = True
 
     def copy(self):
         result = SlicModel(self.num_components)
@@ -177,6 +178,7 @@ cdef class SlicModel:
                 context.convert_to_lab = self.convert_to_lab
                 context.preemptive = self.preemptive
                 context.preemptive_thres = self.preemptive_thres
+                context.manhattan_spatial_dist = self.manhattan_spatial_dist
                 with nogil:
                     context.initialize_state()
                     context.iterate(
@@ -222,6 +224,7 @@ cdef class SlicModel:
                 context_real_dist.convert_to_lab = self.convert_to_lab
                 context_real_dist.preemptive = self.preemptive
                 context_real_dist.preemptive_thres = self.preemptive_thres
+                context_real_dist.manhattan_spatial_dist = self.manhattan_spatial_dist
                 with nogil:
                     context_real_dist.initialize_state()
                     context_real_dist.iterate(
