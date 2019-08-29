@@ -1,6 +1,7 @@
 #include "context.h"
 #include "cca.h"
 #include "cielab.h"
+#include "timer.h"
 
 #include <limits>
 
@@ -11,8 +12,6 @@
 #ifndef _OPENMP
 #define omp_get_num_threads() 1
 #endif
-
-// #define FAST_SLIC_TIMER
 
 namespace fslic {
     template<typename DistType>
@@ -136,100 +135,84 @@ namespace fslic {
     template<typename DistType>
     void BaseContext<DistType>::iterate(uint16_t *assignment, int max_iter) {
         {
-#           ifdef FAST_SLIC_TIMER
-            auto t0 = Clock::now();
-#           endif
-            #pragma omp parallel
+            fstimer::Scope s("iterate");
             {
-                #pragma omp for
-                for (int i = 0; i < H; i++) {
-                    for (int j = 0; j < W; j++) {
-                        for (int k = 0; k < 3; k++) {
-                            quad_image.get(i, 4 * j + k) = image[i * W * 3 + 3 * j + k];
+                fstimer::Scope s("write_to_buffer");
+                #pragma omp parallel
+                {
+                    #pragma omp for
+                    for (int i = 0; i < H; i++) {
+                        for (int j = 0; j < W; j++) {
+                            for (int k = 0; k < 3; k++) {
+                                quad_image.get(i, 4 * j + k) = image[i * W * 3 + 3 * j + k];
+                            }
+                        }
+                    }
+
+                    #pragma omp for
+                    for (int i = 0; i < H; i++) {
+                        for (int j = 0; j < W; j++) {
+                            this->assignment.get(i, j) = 0xFFFF;
                         }
                     }
                 }
+            }
 
-                #pragma omp for
+            {
+                fstimer::Scope s("cielab_conversion");
+                if (convert_to_lab) {
+                    rgb_to_lab(&quad_image.get(0, 0), quad_image.contiguous_memory_size());
+                }
+            }
+
+            subsample_rem = 0;
+            subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
+            {
+                fstimer::Scope s("before_iteration");
+                before_iteration();
+            }
+            preemptive_grid.initialize(preemptive, preemptive_thres, subsample_stride);
+
+            for (int i = 0; i < max_iter; i++) {
+                {
+                    fstimer::Scope s("assign");
+                    assign();
+                }
+
+                {
+                    fstimer::Scope s("update");
+                    preemptive_grid.set_old_assignment(this->assignment);
+                    update();
+                    preemptive_grid.set_new_assignment(this->assignment);
+                }
+
+                {
+                    fstimer::Scope s("after_update");
+                    after_update();
+                }
+                subsample_rem = (subsample_rem + 1) % subsample_stride;
+            }
+            preemptive_grid.finalize();
+
+            {
+                fstimer::Scope s("full_assign");
+                full_assign();
+            }
+            {
+                fstimer::Scope s("write_back");
+                #pragma omp parallel for
                 for (int i = 0; i < H; i++) {
                     for (int j = 0; j < W; j++) {
-                        this->assignment.get(i, j) = 0xFFFF;
+                        assignment[W * i + j] = this->assignment.get(i, j);
                     }
                 }
             }
-
-#           ifdef FAST_SLIC_TIMER
-            auto t1 = Clock::now();
-            std::cerr << "Copy Image&initialize label map: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << "us\n";
-#           endif
-        }
-
-        if (convert_to_lab) {
-            rgb_to_lab(&quad_image.get(0, 0), quad_image.contiguous_memory_size());
-        }
-
-        subsample_rem = 0;
-        subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
-#       ifdef FAST_SLIC_TIMER
-        auto ts = Clock::now();
-#       endif
-        before_iteration();
-#       ifdef FAST_SLIC_TIMER
-        auto tt = Clock::now();
-        std::cerr << "before_iteration " << std::chrono::duration_cast<std::chrono::microseconds>(tt-ts).count() << "us\n";
-#       endif
-        preemptive_grid.initialize(preemptive, preemptive_thres, subsample_stride);
-
-        for (int i = 0; i < max_iter; i++) {
-#           ifdef FAST_SLIC_TIMER
-            auto t1 = Clock::now();
-#           endif
-            assign();
-#           ifdef FAST_SLIC_TIMER
-            auto t2 = Clock::now();
-#           endif
-            preemptive_grid.set_old_assignment(this->assignment);
-            update();
-            preemptive_grid.set_new_assignment(this->assignment);
-#           ifdef FAST_SLIC_TIMER
-            auto t21 = Clock::now();
-#           endif
-            after_update();
-#           ifdef FAST_SLIC_TIMER
-            auto t3 = Clock::now();
-            std::cerr << "assignment " << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us\n";
-            std::cerr << "update "<< std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count() << "us (post " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t21).count() << "us)\n";
-#           endif
-            subsample_rem = (subsample_rem + 1) % subsample_stride;
-        }
-        preemptive_grid.finalize();
-
-        full_assign();
-
-        {
-#           ifdef FAST_SLIC_TIMER
-            auto t1 = Clock::now();
-#           endif
-
-            #pragma omp parallel for
-            for (int i = 0; i < H; i++) {
-                for (int j = 0; j < W; j++) {
-                    assignment[W * i + j] = this->assignment.get(i, j);
-                }
+            {
+                fstimer::Scope s("enforce_connectivity");
+                enforce_connectivity(assignment);
             }
-#           ifdef FAST_SLIC_TIMER
-            auto t2 = Clock::now();
-            std::cerr << "Write back assignment"<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-#           endif
         }
-#       ifdef FAST_SLIC_TIMER
-        auto t1 = Clock::now();
-#       endif
-        enforce_connectivity(assignment);
-#       ifdef FAST_SLIC_TIMER
-        auto t2 = Clock::now();
-        std::cerr << "enforce connectivity "<< std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count() << "us \n";
-#       endif
+        last_timing_report = fstimer::get_report();
     }
 
     template<typename DistType>

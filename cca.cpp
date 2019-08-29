@@ -12,6 +12,7 @@
 #include <ctime>
 #include <queue>
 #include <deque>
+#include "timer.h"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -189,66 +190,76 @@ namespace cca {
             }
         };
 
-        // auto t0 = Clock::now();
-        DisjointSet disjoint_set = assign_disjoint_set(out, H, W);
-        // auto t1 = Clock::now();
-        std::unique_ptr<ComponentSet> cc_set { disjoint_set.flatten() };
+        fstimer::Scope s("cca");
+        std::unique_ptr<ComponentSet> cc_set;
+        {
+            fstimer::begin("build_disjoint_set");
+            DisjointSet disjoint_set = assign_disjoint_set(out, H, W);
+            fstimer::end();
+            fstimer::begin("flatten");
+            cc_set = std::move(disjoint_set.flatten());
+            fstimer::end();
+        }
 
         int num_components = cc_set->num_components;
+
         std::vector<label_no_t> substitute(num_components, 0xFFFF);
         std::vector<component_no_t> comps;
         comps.reserve(max_label_size);
 
-        for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-            if (cc_set->num_component_members[component_no] >= min_threshold) {
-                comps.push_back(component_no);
+        {
+            fstimer::Scope s("threshold_by_area");
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (cc_set->num_component_members[component_no] >= min_threshold) {
+                    comps.push_back(component_no);
+                }
             }
         }
 
         areacmpcls areacmp(cc_set->num_component_members);
         leader_index_cmpcls leadercmp(cc_set->component_leaders);
 
-        if ((std::size_t)max_label_size < comps.size()) {
-            std::partial_sort(comps.begin(), comps.begin() + max_label_size, comps.end(), areacmp);
-            comps.erase(comps.begin() + max_label_size, comps.end());
+        {
+            fstimer::Scope s("sort");
+            if ((std::size_t)max_label_size < comps.size()) {
+                std::partial_sort(comps.begin(), comps.begin() + max_label_size, comps.end(), areacmp);
+                comps.erase(comps.begin() + max_label_size, comps.end());
+            }
+            std::sort(comps.begin(), comps.end(), leadercmp);
         }
-        std::sort(comps.begin(), comps.end(), leadercmp);
         label_no_t next_label = 0;
 
-        for (component_no_t component_no : comps) {
-            substitute[component_no] = next_label++;
-        }
-        if (num_components > 0 && substitute[0] == 0xFFFF) substitute[0] = 0;
-
-        for (component_no_t component_no = 0; component_no < num_components; component_no++) {
-            if (substitute[component_no] != 0xFFFF) continue;
-            int leader_index = cc_set->component_leaders[component_no];
-            label_no_t subs_label = 0xFFFF;
-            if (leader_index % W > 0) {
-                subs_label = substitute[cc_set->component_assignment[leader_index - 1]];
-            } else {
-                subs_label = substitute[cc_set->component_assignment[leader_index - W]];
+        {
+            fstimer::Scope s("substitute");
+            for (component_no_t component_no : comps) {
+                substitute[component_no] = next_label++;
             }
-            if (subs_label == 0xFFFF) {
-                subs_label = 0;
-                // std::cerr << "leader_y " << leader_index << "\n";
+            if (num_components > 0 && substitute[0] == 0xFFFF) substitute[0] = 0;
+
+            for (component_no_t component_no = 0; component_no < num_components; component_no++) {
+                if (substitute[component_no] != 0xFFFF) continue;
+                int leader_index = cc_set->component_leaders[component_no];
+                label_no_t subs_label = 0xFFFF;
+                if (leader_index % W > 0) {
+                    subs_label = substitute[cc_set->component_assignment[leader_index - 1]];
+                } else {
+                    subs_label = substitute[cc_set->component_assignment[leader_index - W]];
+                }
+                if (subs_label == 0xFFFF) {
+                    subs_label = 0;
+                    // std::cerr << "leader_y " << leader_index << "\n";
+                }
+                substitute[component_no] = subs_label;
             }
-            substitute[component_no] = subs_label;
         }
 
 
-        #pragma omp parallel for
-        for (int i = 0; i < H * W; i++) {
-            out[i] = substitute[cc_set->component_assignment[i]];
+        {
+            fstimer::Scope s("output");
+            #pragma omp parallel for
+            for (int i = 0; i < H * W; i++) {
+                out[i] = substitute[cc_set->component_assignment[i]];
+            }
         }
-
-        // auto t3 = Clock::now();
-        // auto t6 = Clock::now();
-
-        // std::cerr << "  disjoint: " << micro(t1 -t0) << "us" << std::endl;
-        // std::cerr << "  flatten: " << micro(t3 - t1) << "us" << std::endl;
-        // std::cerr << "  unlabel_comp: " << micro(t4 - t3) << "us" << std::endl;
-        // std::cerr << "  adj: " << micro(t5 - t4) << "us" << std::endl;
-        // std::cerr << "  writeback_comp: " << micro(t6 - t5) << "us" << std::endl;
     }
 };

@@ -2,6 +2,7 @@
 
 from libc.stdint cimport uint8_t, uint32_t, uint16_t, int16_t
 from libcpp cimport bool
+from libcpp.string cimport string
 
 cdef extern from "fast-slic-common.h":
     ctypedef struct Cluster:
@@ -46,6 +47,7 @@ cdef extern from "context.h" namespace "fslic":
         void initialize_state() nogil
         bool parallelism_supported() nogil
         void iterate(uint16_t *assignment, int max_iter) nogil except +
+        string get_timing_report();
 
     cdef cppclass ContextRealDist:
         int16_t subsample_stride_config
@@ -64,6 +66,7 @@ cdef extern from "context.h" namespace "fslic":
         void initialize_state() nogil
         bool parallelism_supported() nogil
         void iterate(uint16_t *assignment, int max_iter) nogil except +
+        string get_timing_report();
 
     cdef cppclass ContextRealDistL2(ContextRealDist):
         ContextRealDistL2(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
@@ -118,6 +121,7 @@ cdef class SlicModel:
     cdef public object preemptive
     cdef public float preemptive_thres
     cdef public object manhattan_spatial_dist
+    cdef public object last_timing_report
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

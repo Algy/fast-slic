@@ -48,6 +48,8 @@ namespace fslic {
 
         PreemptiveGrid preemptive_grid;
     public:
+        std::string last_timing_report;
+    public:
         BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters)
             : H(H), W(W), K(K), image(image), clusters(clusters), S(sqrt(H * W / K)),
               quad_image(H, 4 * W, S, S, 4 * S, 4 * S),
@@ -57,6 +59,18 @@ namespace fslic {
               preemptive_grid(H, W, S) {};
         virtual ~BaseContext();
     public:
+        void initialize_clusters();
+        void initialize_state();
+        void enforce_connectivity(uint16_t *assignment);
+        bool parallelism_supported();
+        void iterate(uint16_t *assignment, int max_iter);
+        std::string get_timing_report() { return last_timing_report; };
+    private:
+        void prepare_spatial();
+        void assign();
+        void update();
+    protected:
+        void full_assign();
         template <typename T>
         inline T fit_to_stride(T value) {
             T plus_rem = subsample_rem - value % subsample_stride;
@@ -67,19 +81,6 @@ namespace fslic {
         inline bool valid_subsample_row(int i) {
             return i % subsample_stride == subsample_rem;
         }
-
-    public:
-        void initialize_clusters();
-        void initialize_state();
-        void enforce_connectivity(uint16_t *assignment);
-        bool parallelism_supported();
-        void iterate(uint16_t *assignment, int max_iter);
-    private:
-        void prepare_spatial();
-        void assign();
-        void update();
-    protected:
-        void full_assign();
     protected:
         virtual void before_iteration() {};
         virtual void after_update() {};

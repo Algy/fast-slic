@@ -186,6 +186,7 @@ cdef class SlicModel:
                         max_iter,
                     )
             finally:
+                self.last_timing_report = context.get_timing_report().decode("utf-8")
                 del context
         else:
             if self.real_dist_type == 'standard':
@@ -240,6 +241,7 @@ cdef class SlicModel:
                         max_iter,
                     )
             finally:
+                self.last_timing_report = context_real_dist.get_timing_report().decode("utf-8")
                 del context_real_dist
         result = assignments.astype(np.int16)
         result[result == 0xFFFF] = -1
