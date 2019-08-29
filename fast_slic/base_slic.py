@@ -10,7 +10,6 @@ class BaseSlic(object):
                  min_size_factor=0.05,
                  subsample_stride=3,
                  convert_to_lab=False,
-                 strict_cca=True,
                  preemptive=False,
                  preemptive_thres=0.05):
         self.compactness = compactness
@@ -20,7 +19,6 @@ class BaseSlic(object):
         self._last_assignment = None
 
         self.convert_to_lab = convert_to_lab
-        self._slic_model.strict_cca = strict_cca
         self._slic_model.preemptive = preemptive
         self._slic_model.preemptive_thres = preemptive_thres
 

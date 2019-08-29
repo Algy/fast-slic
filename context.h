@@ -27,10 +27,10 @@ namespace fslic {
         float compactness = 20;
         float min_size_factor = 0.1;
         bool convert_to_lab = false;
-        bool strict_cca = true;
 
         bool preemptive = false;
         float preemptive_thres = 0.01;
+
     protected:
         int H, W, K;
         const uint8_t* image;

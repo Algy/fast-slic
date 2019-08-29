@@ -88,9 +88,8 @@ namespace cca {
         int H, W;
         int min_threshold;
         int max_label_size;
-        bool strict;
     public:
-        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict = true);
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold);
         void execute(label_no_t *out);
     };
 };

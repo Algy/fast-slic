@@ -35,7 +35,6 @@ cdef class SlicModel:
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
         self.initialized = False
-        self.strict_cca = True
         self.preemptive = False
         self.preemptive_thres = 0.05
 
@@ -176,7 +175,6 @@ cdef class SlicModel:
                 context.min_size_factor = min_size_factor
                 context.subsample_stride_config = subsample_stride
                 context.convert_to_lab = self.convert_to_lab
-                context.strict_cca = self.strict_cca
                 context.preemptive = self.preemptive
                 context.preemptive_thres = self.preemptive_thres
                 with nogil:
@@ -222,7 +220,6 @@ cdef class SlicModel:
                 context_real_dist.min_size_factor = min_size_factor
                 context_real_dist.subsample_stride_config = subsample_stride
                 context_real_dist.convert_to_lab = self.convert_to_lab
-                context_real_dist.strict_cca = self.strict_cca
                 context_real_dist.preemptive = self.preemptive
                 context_real_dist.preemptive_thres = self.preemptive_thres
                 with nogil:
@@ -346,7 +343,7 @@ cpdef get_supported_archs():
         p += 1
     return result
 
-cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold, bool strict):
+cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold):
     cdef int H = assignments.shape[0]
     cdef int W = assignments.shape[1]
     cdef int K = 0
@@ -366,7 +363,6 @@ cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold, 
         W,
         K,
         min_threshold,
-        strict,
     )
     try:
         enforcer.execute(<uint16_t *>&assignments[0, 0])

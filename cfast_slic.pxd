@@ -35,7 +35,6 @@ cdef extern from "context.h" namespace "fslic":
         float compactness
         float min_size_factor
         bool convert_to_lab
-        bool strict_cca
 
         bool preemptive
         float preemptive_thres
@@ -52,7 +51,6 @@ cdef extern from "context.h" namespace "fslic":
         float compactness
         float min_size_factor
         bool convert_to_lab
-        bool strict_cca
 
         bool preemptive
         float preemptive_thres
@@ -91,7 +89,7 @@ cdef extern from "lsc.h" namespace "fslic":
 
 cdef extern from "cca.h" namespace "cca":
     cdef cppclass ConnectivityEnforcer:
-        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict)
+        ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold)
         void execute(uint16_t *out)
 
 cdef class NodeConnectivity:
@@ -110,7 +108,6 @@ cdef class SlicModel:
     cdef public object real_dist
     cdef public object real_dist_type
     cdef public object convert_to_lab
-    cdef public object strict_cca
     cdef public object preemptive 
     cdef public float preemptive_thres
 
@@ -126,4 +123,4 @@ cdef class SlicModel:
 cpdef is_supported_arch(arch_name)
 cpdef get_supported_archs()
 
-cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold, bool strict)
+cpdef enforce_connectivity(const int16_t[:,::1] assignments, int min_threshold)

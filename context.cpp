@@ -23,7 +23,7 @@ namespace fslic {
     void BaseContext<DistType>::enforce_connectivity(uint16_t *assignment) {
         int thres = (int)round((double)(S * S) * (double)min_size_factor);
         if (K <= 0 || H <= 0 || W <= 0) return;
-        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres, strict_cca);
+        cca::ConnectivityEnforcer ce(assignment, H, W, K, thres);
         ce.execute(assignment);
     }
 

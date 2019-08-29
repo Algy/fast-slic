@@ -170,8 +170,8 @@ namespace cca {
         return std::move(result);
     }
 
-    ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold, bool strict)
-            : H(H), W(W), min_threshold(min_threshold), max_label_size(K), strict(strict) {};
+    ConnectivityEnforcer::ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold)
+            : H(H), W(W), min_threshold(min_threshold), max_label_size(K) {};
 
     void ConnectivityEnforcer::execute(label_no_t *out) {
         struct areacmpcls {
