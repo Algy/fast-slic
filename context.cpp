@@ -226,8 +226,8 @@ namespace fslic {
 
         // safeguard
         for (int k = 0; k < K; k++) {
-            clusters[k].x = clamp<int16_t>(clusters[k].x, 0, W - 1);
-            clusters[k].y = clamp<int16_t>(clusters[k].y, 0, H - 1);
+            clusters[k].x = clamp<DistType>(clusters[k].x, 0, W - 1);
+            clusters[k].y = clamp<DistType>(clusters[k].y, 0, H - 1);
         }
 
         int T = 2 * S;
