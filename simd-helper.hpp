@@ -18,7 +18,6 @@
 #ifdef __alignas_is_defined
 #    define ALIGN(X) alignas(X)
 #else
-#    pragma message("C++11 alignas unsupported :( Falling back to compiler attributes")
 #    ifdef __GNUG__
 #        define ALIGN(X) __attribute__ ((aligned(X)))
 #    elif defined(_MSC_VER)
@@ -31,7 +30,6 @@
 #ifdef __alignof_is_defined
 #    define ALIGNOF(X) alignof(x)
 #else
-#    pragma message("C++11 alignof unsupported :( Falling back to compiler attributes")
 #    ifdef __GNUG__
 #        define ALIGNOF(X) __alignof__ (X)
 #    elif defined(_MSC_VER)

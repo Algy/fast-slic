@@ -194,10 +194,6 @@ namespace cca {
         // auto t1 = Clock::now();
         std::unique_ptr<ComponentSet> cc_set { disjoint_set.flatten() };
 
-
-        const int dy[4] {-1, 0, 1, 0};
-        const int dx[4] {0, -1, 0, 1};
-
         int num_components = cc_set->num_components;
         std::vector<label_no_t> substitute(num_components, 0xFFFF);
         std::vector<component_no_t> comps;

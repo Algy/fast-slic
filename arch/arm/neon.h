@@ -103,8 +103,6 @@ namespace fslic {
     		);
 
     				// (16 + 16)(batch size) / 4(rgba quad) = stride 8
-    				#pragma unroll(4)
-    				#pragma GCC unroll(4)
     				for (int j = 0; j < patch_width_multiple8; j += 8) {
     					ASSIGNMENT_VALUE_GETTER_BODY
     					vst1q_u16(min_dist_row, new_min_dist);

@@ -40,12 +40,13 @@ namespace fslic {
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
-        PreemptiveGrid preemptive_grid;
     protected:
         simd_helper::AlignedArray<uint8_t> quad_image;
         simd_helper::AlignedArray<uint16_t> assignment;
         simd_helper::AlignedArray<DistType> min_dists;
         simd_helper::AlignedArray<DistType> spatial_dist_patch;
+
+        PreemptiveGrid preemptive_grid;
     public:
         BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters)
             : H(H), W(W), K(K), image(image), clusters(clusters), S(sqrt(H * W / K)),

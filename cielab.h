@@ -362,6 +362,7 @@ static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int s
     }
 }
 
+#if 0
 static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
     #pragma omp parallel for if(parallel)
     for (int s = 0; s < size; s += 4) {
@@ -406,5 +407,6 @@ static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, 
         out[s+2] = (uint8_t)cieb;
     }
 }
+#endif
 
 #endif
