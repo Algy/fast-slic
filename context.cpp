@@ -26,11 +26,6 @@ namespace fslic {
         ce.execute(assignment);
     }
 
-    template <typename DistType>
-    void BaseContext<DistType>::prepare_spatial() {
-        set_spatial_patch();
-    }
-
     template<typename DistType>
     void BaseContext<DistType>::set_spatial_patch() {
         float coef = 1.0f / ((float)S / compactness);
@@ -53,9 +48,6 @@ namespace fslic {
     template<typename DistType>
     void BaseContext<DistType>::initialize_clusters() {
         if (H <= 0 || W <= 0 || K <= 0) return;
-    #ifdef FAST_SLIC_TIMER
-        auto t1 = Clock::now();
-    #endif
         int n_y = (int)sqrt((double)K);
 
         std::vector<int> n_xs(n_y, K / n_y);
@@ -104,23 +96,11 @@ namespace fslic {
             clusters[k].number = k;
             clusters[k].num_members = 0;
         }
-        #ifdef FAST_SLIC_TIMER
-        auto t2 = Clock::now();
-        std::cerr << "Cluster initialization: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
-
-        #endif
     }
 
     template<typename DistType>
     void BaseContext<DistType>::initialize_state() {
-#       ifdef FAST_SLIC_TIMER
-        auto t0 = Clock::now();
-#       endif
-        prepare_spatial();
-#       ifdef FAST_SLIC_TIMER
-        auto t1 = Clock::now();
-        std::cerr << "Initialize spatial map: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << "us\n";
-#       endif
+        set_spatial_patch();
     }
 
     template<typename DistType>
