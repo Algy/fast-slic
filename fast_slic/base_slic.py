@@ -6,13 +6,13 @@ class BaseSlic(object):
     def __init__(self,
                  num_components=400,
                  slic_model=None,
-                 compactness=20,
-                 min_size_factor=0.05,
+                 compactness=10,
+                 min_size_factor=0.25,
                  subsample_stride=3,
                  convert_to_lab=True,
                  preemptive=False,
                  preemptive_thres=0.05,
-                 manhattan_spatial_dist=True,
+                 manhattan_spatial_dist=False,
                  num_threads=-1):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
