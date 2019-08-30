@@ -30,7 +30,7 @@ cdef extern from "src/fast-slic.h":
     void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint16_t* assignment, const uint8_t *cluster_densities, uint8_t *result) nogil
 
 cdef extern from "src/context.h" namespace "fslic":
-    cdef cppclass Context:
+    cdef cppclass BaseContext[DistType]:
         int16_t subsample_stride_config
         int num_threads
         float compactness
@@ -42,31 +42,18 @@ cdef extern from "src/context.h" namespace "fslic":
 
         bool manhattan_spatial_dist
 
+        BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
+        void initialize_clusters() nogil
+        void initialize_state() nogil
+        bool parallelism_supported() nogil
+        void iterate(uint16_t *assignment, int max_iter) nogil except +
+        string get_timing_report();
+
+    cdef cppclass Context(BaseContext[uint16_t]):
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
-        void initialize_clusters() nogil
-        void initialize_state() nogil
-        bool parallelism_supported() nogil
-        void iterate(uint16_t *assignment, int max_iter) nogil except +
-        string get_timing_report();
 
-    cdef cppclass ContextRealDist:
-        int16_t subsample_stride_config
-        int num_threads
-        float compactness
-        float min_size_factor
-        bool convert_to_lab
-
-        bool preemptive
-        float preemptive_thres
-
-        bool manhattan_spatial_dist
-
+    cdef cppclass ContextRealDist(BaseContext[float]):
         ContextRealDist(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
-        void initialize_clusters() nogil
-        void initialize_state() nogil
-        bool parallelism_supported() nogil
-        void iterate(uint16_t *assignment, int max_iter) nogil except +
-        string get_timing_report();
 
     cdef cppclass ContextRealDistL2(ContextRealDist):
         ContextRealDistL2(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
