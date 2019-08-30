@@ -12,6 +12,64 @@ from setuptools import find_packages
 from distutils.core import setup
 from distutils.extension import Extension
 
+# https://stackoverflow.com/questions/11013851/speeding-up-build-process-with-distutils
+import os
+import multiprocessing
+try:
+    from concurrent.futures import ThreadPoolExecutor as Pool
+except ImportError:
+    from multiprocessing.pool import ThreadPool as LegacyPool
+
+    # To ensure the with statement works. Required for some older 2.7.x releases
+    class Pool(LegacyPool):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.close()
+            self.join()
+
+
+def build_extensions(self):
+    """Function to monkey-patch
+    distutils.command.build_ext.build_ext.build_extensions
+
+    """
+    self.check_extensions_list(self.extensions)
+
+    try:
+        num_jobs = os.cpu_count()
+    except AttributeError:
+        num_jobs = multiprocessing.cpu_count()
+
+    with Pool(num_jobs) as pool:
+        pool.map(self.build_extension, self.extensions)
+
+def compile(
+    self, sources, output_dir=None, macros=None, include_dirs=None,
+    debug=0, extra_preargs=None, extra_postargs=None, depends=None,
+):
+    """Function to monkey-patch distutils.ccompiler.CCompiler"""
+    macros, objects, extra_postargs, pp_opts, build = self._setup_compile(
+        output_dir, macros, include_dirs, sources, depends, extra_postargs
+    )
+    cc_args = self._get_cc_args(pp_opts, debug, extra_preargs)
+
+    for obj in objects:
+        try:
+            src, ext = build[obj]
+        except KeyError:
+            continue
+        self._compile(obj, src, ext, cc_args, extra_postargs, pp_opts)
+
+    # Return *all* object filenames, not just the ones we just built.
+    return objects
+
+
+from distutils.ccompiler import CCompiler
+from distutils.command.build_ext import build_ext
+build_ext.build_extensions = build_extensions
+
 
 def _compile_and_check(c_content, compiler_args = []):
     import os, tempfile, subprocess, shutil
