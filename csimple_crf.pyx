@@ -11,7 +11,7 @@ from libc.stdint cimport uint32_t, int32_t
 from libcpp.vector cimport vector
 from cython.operator cimport dereference as deref, preincrement
 
-cdef extern from "simple-crf.hpp":
+cdef extern from "src/simple-crf.hpp":
     ctypedef int simple_crf_time_t
 
     ctypedef struct SimpleCRFParams:

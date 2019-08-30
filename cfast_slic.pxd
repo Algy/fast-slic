@@ -4,7 +4,7 @@ from libc.stdint cimport uint8_t, uint32_t, uint16_t, int16_t
 from libcpp cimport bool
 from libcpp.string cimport string
 
-cdef extern from "fast-slic-common.h":
+cdef extern from "src/fast-slic-common.h":
     ctypedef struct Cluster:
         float y
         float x
@@ -22,14 +22,14 @@ cdef extern from "fast-slic-common.h":
         uint32_t **neighbors;
 
 
-cdef extern from "fast-slic.h":
+cdef extern from "src/fast-slic.h":
     Connectivity* fast_slic_get_connectivity(int H, int W, int K, const uint16_t *assignment) nogil
     Connectivity* fast_slic_knn_connectivity(int H, int W, int K, const Cluster* clusters, int num_neighbors) nogil
     void fast_slic_free_connectivity(Connectivity* conn) nogil
     void fast_slic_get_mask_density(int H, int W, int K, const Cluster* clusters, const uint16_t* assignment, const uint8_t *mask, uint8_t *cluster_densities) nogil
     void fast_slic_cluster_density_to_mask(int H, int W, int K, const Cluster *clusters, const uint16_t* assignment, const uint8_t *cluster_densities, uint8_t *result) nogil
 
-cdef extern from "context.h" namespace "fslic":
+cdef extern from "src/context.h" namespace "fslic":
     cdef cppclass Context:
         int16_t subsample_stride_config
         int num_threads
@@ -83,7 +83,7 @@ cdef extern from "context.h" namespace "fslic":
         void set_arch(const char* arch)
         Context* build(int H, int W, int K, const uint8_t* image, Cluster *clusters)
 
-cdef extern from "lsc.h" namespace "fslic":
+cdef extern from "src/lsc.h" namespace "fslic":
     cdef cppclass ContextLSC(ContextRealDist):
         ContextLSC(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
@@ -97,7 +97,7 @@ cdef extern from "lsc.h" namespace "fslic":
         ContextLSC* build(int H, int W, int K, const uint8_t* image, Cluster *clusters)
 
 
-cdef extern from "cca.h" namespace "cca":
+cdef extern from "src/cca.h" namespace "cca":
     cdef cppclass ConnectivityEnforcer:
         ConnectivityEnforcer(const uint16_t *labels, int H, int W, int K, int min_threshold)
         void execute(uint16_t *out)

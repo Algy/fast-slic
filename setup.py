@@ -97,6 +97,18 @@ else:
         extra_compile_args.append("/fp:fast")
 
 
+cpp_sources = [
+    "src/timer.cpp",
+    "src/parallel.cpp",
+    "src/fast-slic.cpp",
+    "src/cca.cpp",
+    "src/context.cpp",
+    "src/context-impl.cpp",
+    "src/lsc.cpp",
+    "src/lsc-builder.cpp",
+    "cfast_slic.pyx"
+]
+
 
 setup(
     name="fast-slic",
@@ -122,7 +134,7 @@ setup(
             Extension(
                 "cfast_slic",
                 include_dirs=[np.get_include()],
-                sources=["timer.cpp", "parallel.cpp", "fast-slic.cpp", "cca.cpp", "context.cpp", "context-impl.cpp", "lsc.cpp", "lsc-builder.cpp", "cfast_slic.pyx"],
+                sources=cpp_sources + ["cfast_slic.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",
@@ -130,7 +142,7 @@ setup(
             Extension(
                 "csimple_crf",
                 include_dirs=[np.get_include()],
-                sources=["simple-crf.cpp", "csimple_crf.pyx"],
+                sources=["src/simple-crf.cpp", "csimple_crf.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
                 language="c++",
