@@ -69,12 +69,14 @@ namespace fslic {
 
                 clusters[acc_k].y = center_y;
                 clusters[acc_k].x = center_x;
+                clusters[acc_k].is_active = 1;
 
                 acc_k++;
             }
         }
 
         while (acc_k < K) {
+            clusters[acc_k].is_active = 0;
             clusters[acc_k].y = H / 2;
             clusters[acc_k].x = W / 2;
             acc_k++;
@@ -204,6 +206,7 @@ namespace fslic {
         int cell_W = ceil_int(W, T), cell_H = ceil_int(H, T);
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
+            if (!clusters[k].is_active) continue;
             if (!preemptive_grid.is_active_cluster(clusters[k])) continue;
             int y = clusters[k].y, x = clusters[k].x;
             grid[cell_W * (y / T) + (x / T)].push_back(&clusters[k]);
@@ -437,6 +440,17 @@ namespace fslic {
         }
     }
 
+    void ContextRealDistNoQ::before_iteration() {
+        lab_image.resize(3 * H * W, 0);
+        rgb_to_cielab_orig(image, &lab_image[0], lab_image.size());
+        for (int k = 0; k < K; k++) {
+            int y = clusters[k].y, x = clusters[k].x;
+            clusters[k].r = lab_image[3 * (W * y + x)];
+            clusters[k].g = lab_image[3 * (W * y + x) + 1];
+            clusters[k].b = lab_image[3 * (W * y + x) + 2];
+        }
+    }
+
     bool ContextRealDistNoQ::centroid_quantization_enabled() {
         return false;
     }
@@ -463,21 +477,21 @@ namespace fslic {
             uint16_t cluster_no = cluster->number;
             for (int i = y_lo; i < y_hi; i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint8_t* __restrict image_row = quad_image.get_row(i);
+                const float* __restrict image_row = &lab_image[3 * W * i];
                 uint16_t* __restrict assignment_row = assignment.get_row(i);
                 float* __restrict min_dist_row = min_dists.get_row(i);
                 for (int j = x_lo; j < x_hi; j++) {
-                    float dr = image_row[4 * j] - cluster_r,
-                        dg = image_row[4 * j + 1] - cluster_g,
-                        db = image_row[4 * j + 2] - cluster_b,
-                        dy = i - cluster_y,
-                        dx = j - cluster_x;
+                    float dr = image_row[3 * j] - cluster_r,
+                        dg = image_row[3 * j + 1] - cluster_g,
+                        db = image_row[3 * j + 2] - cluster_b,
+                        dy = coef * (i - cluster_y),
+                        dx = coef * (j - cluster_x);
 
                     float distance;
                     if (use_manhattan) {
-                        distance = std::fabs(dr) + std::fabs(dg) + std::fabs(db) + coef * (std::fabs(dx) + std::fabs(dy));
+                        distance = std::fabs(dr) + std::fabs(dg) + std::fabs(db) + std::fabs(dx) + std::fabs(dy);
                     } else {
-                        distance = dr*dr + dg*dg + db*db + (dx*coef)*(dx*coef) + (dy*coef)*(dy*coef);
+                        distance = dr*dr + dg*dg + db*db + dx*dx + dy*dy;
                     }
                     if (min_dist_row[j] > distance) {
                         min_dist_row[j] = distance;

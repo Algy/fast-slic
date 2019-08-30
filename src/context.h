@@ -106,13 +106,16 @@ namespace fslic {
     class ContextRealDistNoQ : public ContextRealDist {
     public:
         using ContextRealDist::ContextRealDist;
+    private:
+        std::vector<float> lab_image;
     protected:
         virtual void assign_clusters(const Cluster **target_clusters, int size);
         virtual bool centroid_quantization_enabled();
-
     private:
         template<bool use_manhattan>
         void assign_clusters_proto(const Cluster **target_clusters, int size);
+    protected:
+        virtual void before_iteration();
     };
 
     class Context : public BaseContext<uint16_t> {

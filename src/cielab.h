@@ -363,13 +363,12 @@ static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int s
     }
 }
 
-#if 0
-static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
-    #pragma omp parallel for if(parallel) num_threads(fsparallel::nth())
-    for (int s = 0; s < size; s += 4) {
-        float r = _srgb_gamma_tbl[aligned_quad_image[s]],
-            g = _srgb_gamma_tbl[aligned_quad_image[s+1]],
-            b = _srgb_gamma_tbl[aligned_quad_image[s+2]];
+static void rgb_to_cielab_orig(const uint8_t* image, float *out, int size) {
+    #pragma omp parallel for num_threads(fsparallel::nth())
+    for (int s = 0; s < size; s += 3) {
+        float r = _srgb_gamma_tbl[image[s]],
+            g = _srgb_gamma_tbl[image[s+1]],
+            b = _srgb_gamma_tbl[image[s+2]];
         /*
         X = r*0.4124530 + g*0.3575761 + b*0.1804375;
         Y = r*0.2126729 + g*0.7151522 + b*0.0721750;
@@ -402,12 +401,9 @@ static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, 
         float ciel = 116.0f * fy - 16.0f;
         float ciea = 500.0f * (fx - fy) + 128.0f; // to positive integer
         float cieb = 200.0f * (fy - fz) + 128.0f; // to positive integer
-
-        out[s] = (uint8_t)ciel;
-        out[s+1] = (uint8_t)ciea;
-        out[s+2] = (uint8_t)cieb;
+        out[s] = ciel;
+        out[s+1] = ciea;
+        out[s+2] = cieb;
     }
 }
-#endif
-
 #endif
