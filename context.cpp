@@ -2,16 +2,9 @@
 #include "cca.h"
 #include "cielab.h"
 #include "timer.h"
+#include "parallel.h"
 
 #include <limits>
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-#ifndef _OPENMP
-#define omp_get_num_threads() 1
-#endif
 
 namespace fslic {
     template<typename DistType>
@@ -105,20 +98,17 @@ namespace fslic {
 
     template<typename DistType>
     bool BaseContext<DistType>::parallelism_supported() {
-#if defined(_OPENMP)
-    return true;
-#else
-    return false;
-#endif
+        return fsparallel::parallelism_supported();
     }
 
     template<typename DistType>
     void BaseContext<DistType>::iterate(uint16_t *assignment, int max_iter) {
         {
+            fsparallel::Scope parallel_scope(num_threads);
             fstimer::Scope s("iterate");
             {
                 fstimer::Scope s("write_to_buffer");
-                #pragma omp parallel
+                #pragma omp parallel num_threads(fsparallel::nth())
                 {
                     #pragma omp for
                     for (int i = 0; i < H; i++) {
@@ -180,7 +170,7 @@ namespace fslic {
             }
             {
                 fstimer::Scope s("write_back");
-                #pragma omp parallel for
+                #pragma omp parallel for num_threads(fsparallel::nth())
                 for (int i = 0; i < H; i++) {
                     for (int j = 0; j < W; j++) {
                         assignment[W * i + j] = this->assignment.get(i, j);
@@ -197,7 +187,7 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::assign() {
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int i = 0; i < H; i++) {
             for (int j = 0; j < W; j++) {
                 min_dists.get(i, j) = std::numeric_limits<DistType>::max();
@@ -226,7 +216,7 @@ namespace fslic {
                     grid_indices.push_back(i * cell_W + j);
                 }
             }
-            #pragma omp parallel
+            #pragma omp parallel num_threads(fsparallel::nth())
             {
                 std::vector<const Cluster*> target_clusters;
                 #pragma omp for
@@ -312,7 +302,7 @@ namespace fslic {
             cluster_updatable[k] = preemptive_grid.is_updatable_cluster(clusters[k]);
         }
 
-        #pragma omp parallel
+        #pragma omp parallel num_threads(fsparallel::nth())
         {
             std::vector<uint32_t> local_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
             std::vector<uint32_t> local_num_cluster_members(K, 0);

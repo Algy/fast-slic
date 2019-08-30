@@ -13,6 +13,7 @@
 #include <queue>
 #include <deque>
 #include "timer.h"
+#include "parallel.h"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -33,7 +34,7 @@ namespace cca {
         DisjointSet cc_set(H * W);
 
         std::vector<int> seam_ys;
-        #pragma omp parallel
+        #pragma omp parallel num_threads(fsparallel::nth())
         {
             bool is_first = true;
             int seam = 0;
@@ -104,7 +105,7 @@ namespace cca {
         std::unique_ptr<ComponentSet> result { new ComponentSet(size) };
         std::vector<std::vector<tree_node_t>> rootset;
         std::vector<int> root_offsets;
-        #pragma omp parallel
+        #pragma omp parallel num_threads(fsparallel::nth())
         {
             #pragma omp single
             {
@@ -256,7 +257,7 @@ namespace cca {
 
         {
             fstimer::Scope s("output");
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < H * W; i++) {
                 out[i] = substitute[cc_set->component_assignment[i]];
             }

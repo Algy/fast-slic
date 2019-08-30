@@ -2,6 +2,7 @@
 #include <cassert>
 #include "../../context.h"
 #include "../../lsc.h"
+#include "../../parallel.h"
 
 inline void get_assignment_value_vec(
         const Cluster* cluster,
@@ -244,7 +245,7 @@ namespace fslic {
         }
 
     	virtual void normalize_features(float * __restrict numers[10], float* __restrict weights, int size) {
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < size; i += 4) {
                 float32x4_t reciprocal_w = vrecpeq_f32(vld1q_f32(&weights[i]));
                 vst1q_f32(&numers[0][i], vmulq_f32(vld1q_f32(&numers[0][i]), reciprocal_w));

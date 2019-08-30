@@ -1,6 +1,7 @@
 #include <utility>
 #include "fast-slic.h"
 #include "context.h"
+#include "parallel.h"
 
 extern "C" {
     static uint32_t symmetric_int_hash(uint32_t x, uint32_t y) {
@@ -93,7 +94,7 @@ extern "C" {
         conn->num_neighbors = new int[K];
         conn->neighbors = new uint32_t*[K];
 
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int i = 0; i < K; i++) {
             const Cluster* cluster = clusters + i;
             int cell_center_x = cluster->x / S, cell_center_y = cluster->y / S;

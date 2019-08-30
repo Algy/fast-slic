@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include "parallel.h"
 /*
 def get_xyz_nonlin_tbl(a):
     v = a / 255.
@@ -335,7 +336,7 @@ static FastCIELabCvt fast_cielab_cvt;
 
 static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool scale_L = false) {
     if (scale_L) {
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int s = 0; s < size; s += 4) {
             fast_cielab_cvt.convert<true>(
                 aligned_quad_image[s],
@@ -347,7 +348,7 @@ static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int s
             );
         }
     } else {
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int s = 0; s < size; s += 4) {
             fast_cielab_cvt.convert<false>(
                 aligned_quad_image[s],
@@ -364,7 +365,7 @@ static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int s
 
 #if 0
 static void rgb_to_cielab_orig(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool parallel) {
-    #pragma omp parallel for if(parallel)
+    #pragma omp parallel for if(parallel) num_threads(fsparallel::nth())
     for (int s = 0; s < size; s += 4) {
         float r = _srgb_gamma_tbl[aligned_quad_image[s]],
             g = _srgb_gamma_tbl[aligned_quad_image[s+1]],

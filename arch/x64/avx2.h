@@ -1,6 +1,7 @@
 #include <immintrin.h>
 #include "../../context.h"
 #include "../../lsc.h"
+#include "../../parallel.h"
 
 
 inline __m256 _mm256_set_ps1(float v) {
@@ -280,7 +281,7 @@ namespace fslic {
         }
 
     	void normalize_features(float * __restrict img_feats[10], float* __restrict weights, int size) {
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < size; i += 8) {
                 __m256 reciprocal_w = _mm256_rcp_ps(_mm256_loadu_ps(&weights[i]));
                 _mm256_storeu_ps(&img_feats[0][i], _mm256_mul_ps(_mm256_loadu_ps(&img_feats[0][i]), reciprocal_w));

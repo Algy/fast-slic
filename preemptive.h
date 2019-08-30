@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "fast-slic-common.h"
 #include "simd-helper.hpp"
+#include "parallel.h"
 
 struct PreemptiveTile {
     int sy, sx, ey, ex;
@@ -88,7 +89,7 @@ public:
         if (!enabled) return;
         std::fill(num_changes.begin(), num_changes.end(), 0);
 
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int ci = 0; ci < CH; ci++) {
             for (int cj = 0; cj < CW; cj++) {
                 if (!is_active[CW * ci + cj]) continue;

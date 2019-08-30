@@ -3,6 +3,7 @@
 #include <cmath>
 #include "lsc.h"
 #include "cielab.h"
+#include "parallel.h"
 
 //map pixels into ten dimensional feature space
 
@@ -54,7 +55,7 @@ namespace fslic {
         #ifdef FAST_SLIC_TIMER
         auto t1 = Clock::now();
         #endif
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int i = 0; i < H; i++) {
             const uint8_t* image_row = quad_image.get_row(i);
             for (int j = 0; j < W; j++) {
@@ -106,7 +107,7 @@ namespace fslic {
             const uint8_t* __restrict L = &image_planes[0][0];
             const uint8_t* __restrict A = &image_planes[1][0];
             const uint8_t* __restrict B = &image_planes[2][0];
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < len; i++) {
                 image_features[0][i] = L_cosine_map[L[i]];
     			image_features[1][i] = L_sine_map[L[i]];
@@ -117,7 +118,7 @@ namespace fslic {
             }
             // x1, x2, y1, y2
 
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int y = 0; y < H; y++) {
                 std::copy(
                     width_cosine_map.begin(),
@@ -131,7 +132,7 @@ namespace fslic {
                 );
             }
 
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int y = 0; y < H; y++) {
                 std::fill_n(&image_features[8][y * W], W, height_cosine_map[y]);
                 std::fill_n(&image_features[9][y * W], W, height_sine_map[y]);
@@ -144,7 +145,7 @@ namespace fslic {
 	    float sum_features[10];
         std::fill_n(sum_features, 10, 0);
         {
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 float sum = 0;
                 for (int i = 0; i < len; i++) {
@@ -159,7 +160,7 @@ namespace fslic {
         #endif
 
         {
-            #pragma omp parallel for
+            #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < len; i++) {
                 float w = 0;
                 for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
@@ -187,7 +188,7 @@ namespace fslic {
             std::fill_n(feat, K, 0);
         }
 
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int k = 0; k < K; k++) {
             const Cluster* cluster = &clusters[k];
             int cluster_y = cluster->y, cluster_x = cluster->x;
@@ -257,7 +258,7 @@ namespace fslic {
             wsums[k] = cluster_updatable[k]? 0.0f : 1.0f;
         }
 
-        #pragma omp parallel
+        #pragma omp parallel num_threads(fsparallel::nth())
         {
             float* __restrict local_feats[10];
             float* __restrict local_wsums = new float[K];
@@ -327,7 +328,7 @@ namespace fslic {
 
 
 	void ContextLSC::normalize_features(float *__restrict numers[10], float* __restrict weights, int size) {
-        #pragma omp parallel for
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int i = 0; i < size; i++) {
             for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
                 numers[ix_feat][i] /= weights[i];

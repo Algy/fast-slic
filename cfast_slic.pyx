@@ -27,6 +27,7 @@ cdef class SlicModel:
             raise ValueError("num_components should be a non-negative integer")
 
         self.num_components = num_components
+        self.num_threads = -1
         self.arch_name = arch_name
         self.real_dist = real_dist
         self.real_dist_type = "standard"
@@ -172,6 +173,7 @@ cdef class SlicModel:
                 c_clusters,
             )
             try:
+                context.num_threads = self.num_threads
                 context.compactness = compactness
                 context.min_size_factor = min_size_factor
                 context.subsample_stride_config = subsample_stride
@@ -227,6 +229,7 @@ cdef class SlicModel:
                 raise RuntimeError("No such real_dist_type " + repr(self.real_dist_type))
 
             try:
+                context_real_dist.num_threads = self.num_threads
                 context_real_dist.compactness = compactness
                 context_real_dist.min_size_factor = min_size_factor
                 context_real_dist.subsample_stride_config = subsample_stride

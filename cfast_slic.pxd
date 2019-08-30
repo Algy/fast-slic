@@ -113,6 +113,7 @@ cdef class NodeConnectivity:
 cdef class SlicModel:
     cdef Cluster* _c_clusters
     cdef readonly int num_components
+    cdef public int num_threads
     cdef public object initialized
     cdef public object arch_name
     cdef public object real_dist
