@@ -269,7 +269,7 @@ namespace fslic {
 
             for (int i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint16_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
                 uint16_t* __restrict  assignment_row = assignment.get_row(i, cluster_x - S);
                 DistType* __restrict min_dist_row = min_dists.get_row(i, cluster_x - S);
                 const DistType* __restrict patch_row = spatial_dist_patch.get_row(i_off);
@@ -404,7 +404,7 @@ namespace fslic {
 
             for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint16_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
                 uint16_t* __restrict assignment_row = assignment.get_row(i, cluster_x - S);
                 float* __restrict  min_dist_row = min_dists.get_row(i, cluster_x - S);
                 const float* __restrict patch_row = spatial_dist_patch.get_row(i_off);

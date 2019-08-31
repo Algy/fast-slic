@@ -46,7 +46,7 @@ namespace fslic {
     protected:
         int color_shift;
     protected:
-        simd_helper::AlignedArray<uint16_t> quad_image;
+        simd_helper::AlignedArray<uint8_t> quad_image;
         simd_helper::AlignedArray<uint16_t> assignment;
         simd_helper::AlignedArray<DistType> min_dists;
         simd_helper::AlignedArray<DistType> spatial_dist_patch;
