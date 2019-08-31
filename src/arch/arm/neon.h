@@ -17,10 +17,10 @@ inline void get_assignment_value_vec(
     uint16x8_t image_segment_3 = vld1q_u16(img_quad_row + 16);
     uint16x8_t image_segment_4 = vld1q_u16(img_quad_row + 24);
 
-    uint16x8_t abs_segment_1 = vabdq_u8(image_segment_1, cluster_color_vec);
-    uint16x8_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
-    uint16x8_t abs_segment_3 = vabdq_u8(image_segment_3, cluster_color_vec);
-    uint16x8_t abs_segment_4 = vabdq_u8(image_segment_4, cluster_color_vec);
+    uint16x8_t abs_segment_1 = vabdq_u16(image_segment_1, cluster_color_vec);
+    uint16x8_t abs_segment_2 = vabdq_u16(image_segment_2, cluster_color_vec);
+    uint16x8_t abs_segment_3 = vabdq_u16(image_segment_3, cluster_color_vec);
+    uint16x8_t abs_segment_4 = vabdq_u16(image_segment_4, cluster_color_vec);
 
     uint16x8_t color_dist_vec = vpaddq_u16(vpaddq_u16(abs_segment_1, abs_segment_2), vpaddq_u16(abs_segment_3, abs_segment_4));
 
