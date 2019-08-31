@@ -40,8 +40,11 @@ namespace fslic {
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
+
     protected:
-        simd_helper::AlignedArray<uint8_t> quad_image;
+        int color_shift;
+    protected:
+        simd_helper::AlignedArray<uint16_t> quad_image;
         simd_helper::AlignedArray<uint16_t> assignment;
         simd_helper::AlignedArray<DistType> min_dists;
         simd_helper::AlignedArray<DistType> spatial_dist_patch;
@@ -86,7 +89,6 @@ namespace fslic {
         virtual void after_update() {};
         virtual void set_spatial_patch();
         virtual void assign_clusters(const Cluster **target_clusters, int size);
-        virtual void rgb_to_lab(uint8_t* quad_image, int size);
         virtual bool centroid_quantization_enabled();
     };
 

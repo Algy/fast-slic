@@ -10,7 +10,7 @@ inline __m256 _mm256_set_ps1(float v) {
 
 inline void get_assignment_value_vec(
         const Cluster* cluster,
-        const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
+        const uint16_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
         __m128i cluster_number_vec, __m256i cluster_color_vec,
         __m128i order_swap_mask,
@@ -23,8 +23,8 @@ inline void get_assignment_value_vec(
 
     __m128i spatial_dist_vec = _mm_load_si128((__m128i *)spatial_dist_patch_row);
 
-    __m256i image_segment = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)img_quad_row));
-    __m256i image_segment_2 = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(img_quad_row + 16)));
+    __m256i image_segment = _mm256_loadu_si256((__m256i*)img_quad_row);
+    __m256i image_segment_2 = _mm256_loadu_si256((__m256i*)(img_quad_row + 16));
 
     // [R1, G1, B1, A1, R2, G2, B2, A2, R3, G3, B3, A3, R3, G3, B3, A3]
     __m256i abd_segment = _mm256_abs_epi16(_mm256_subs_epi16(image_segment, cluster_color_vec));
@@ -114,7 +114,7 @@ namespace fslic {
                     assert((long long)spatial_dist_patch_base_row % 32 == 0);
         #endif
                     // not aligned
-                    const uint8_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
+                    const uint16_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
                     uint16_t* assignment_base_row = assignment.get_row(i + y_lo, x_lo);
                     uint16_t* min_dist_base_row = min_dists.get_row(i + y_lo, x_lo);
 
@@ -122,7 +122,7 @@ namespace fslic {
             __m128i new_assignment__narrow, new_min_dist__narrow; \
             uint16_t* min_dist_row = min_dist_base_row + j; /* unaligned */ \
             uint16_t* assignment_row = assignment_base_row + j;  /* unaligned */ \
-            const uint8_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
+            const uint16_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
             const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
             get_assignment_value_vec( \
                 cluster, \

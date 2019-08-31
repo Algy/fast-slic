@@ -22,6 +22,7 @@ namespace fslic {
     template<typename DistType>
     void BaseContext<DistType>::set_spatial_patch() {
         float coef = 1.0f / ((float)S / compactness);
+        coef *= (1 << color_shift);
         int16_t S_2 = 2 * S;
         if (manhattan_spatial_dist) {
             for (int16_t i = 0; i <= S_2; i++) {
@@ -95,7 +96,6 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::initialize_state() {
-        set_spatial_patch();
     }
 
     template<typename DistType>
@@ -109,10 +109,11 @@ namespace fslic {
             fsparallel::Scope parallel_scope(num_threads);
             fstimer::Scope s("iterate");
             {
-                fstimer::Scope s("write_to_buffer");
-                #pragma omp parallel num_threads(fsparallel::nth())
-                {
-                    #pragma omp for
+                fstimer::Scope s("cielab_conversion");
+                if (convert_to_lab) {
+                    rgb_to_cielab(image, H, W, quad_image, color_shift);
+                } else {
+                    #pragma omp parallel num_threads(fsparallel::nth())
                     for (int i = 0; i < H; i++) {
                         for (int j = 0; j < W; j++) {
                             for (int k = 0; k < 3; k++) {
@@ -120,21 +121,18 @@ namespace fslic {
                             }
                         }
                     }
-
-                    #pragma omp for
-                    for (int i = 0; i < H; i++) {
-                        for (int j = 0; j < W; j++) {
-                            this->assignment.get(i, j) = 0xFFFF;
-                        }
-                    }
+                    color_shift = 0;
                 }
             }
-
             {
-                fstimer::Scope s("cielab_conversion");
-                if (convert_to_lab) {
-                    rgb_to_lab(&quad_image.get(0, 0), quad_image.contiguous_memory_size());
+                fstimer::Scope s("write_to_buffer");
+                #pragma omp parallel for num_threads(fsparallel::nth())
+                for (int i = 0; i < H; i++) {
+                    for (int j = 0; j < W; j++) {
+                        this->assignment.get(i, j) = 0xFFFF;
+                    }
                 }
+                set_spatial_patch();
             }
 
             subsample_rem = 0;
@@ -261,7 +259,7 @@ namespace fslic {
 
             for (int i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                const uint16_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
                 uint16_t* __restrict  assignment_row = assignment.get_row(i, cluster_x - S);
                 DistType* __restrict min_dist_row = min_dists.get_row(i, cluster_x - S);
                 const DistType* __restrict patch_row = spatial_dist_patch.get_row(i_off);
@@ -287,11 +285,6 @@ namespace fslic {
             }
         }
         delete [] dist_row;
-    }
-
-    template<typename DistType>
-    void BaseContext<DistType>::rgb_to_lab(uint8_t *quad_image, int size) {
-        rgb_to_cielab(quad_image, quad_image, size, false);
     }
 
 
@@ -401,7 +394,7 @@ namespace fslic {
 
             for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
                 if (!valid_subsample_row(i)) continue;
-                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
+                const uint16_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
                 uint16_t* __restrict assignment_row = assignment.get_row(i, cluster_x - S);
                 float* __restrict  min_dist_row = min_dists.get_row(i, cluster_x - S);
                 const float* __restrict patch_row = spatial_dist_patch.get_row(i_off);
@@ -431,6 +424,7 @@ namespace fslic {
 
     void ContextRealDistL2::set_spatial_patch() {
         float coef = 1.0f / ((float)S / compactness);
+        coef *= (1 << color_shift);
         int16_t S_2 = 2 * S;
         for (int16_t i = 0; i <= S_2; i++) {
             for (int16_t j = 0; j <= S_2; j++) {
@@ -474,6 +468,7 @@ namespace fslic {
     template<bool use_manhattan, bool use_float_color>
     void ContextRealDistNoQ::assign_clusters_proto(const Cluster** target_clusters, int size) {
         float coef = 1.0f / ((float)S / compactness);
+        coef *= (1 << color_shift);
 
         for (int cidx = 0; cidx < size; cidx++) {
             const Cluster* cluster = target_clusters[cidx];

@@ -15,7 +15,7 @@ namespace fslic {
     }
 
     ContextLSC::~ContextLSC() {
-        if (uint8_memory_pool) delete [] uint8_memory_pool;
+        if (uint16_memory_pool) delete [] uint16_memory_pool;
         if (float_memory_pool) delete [] float_memory_pool;
     }
 
@@ -34,14 +34,14 @@ namespace fslic {
         {
             fstimer::Scope s("image_alloc");
 
-            if (uint8_memory_pool) delete [] uint8_memory_pool;
-            uint8_memory_pool = new uint8_t[3 * aligned_len];
-            if (float_memory_pool) delete [] uint8_memory_pool;
+            if (uint16_memory_pool) delete [] uint16_memory_pool;
+            uint16_memory_pool = new uint16_t[3 * aligned_len];
+            if (float_memory_pool) delete [] uint16_memory_pool;
             float_memory_pool = new float[11 * aligned_len + 10 * aligned_K];
 
-            image_planes[0] = &uint8_memory_pool[0];
-            image_planes[1] = &uint8_memory_pool[aligned_len];
-            image_planes[2] = &uint8_memory_pool[2 * aligned_len];
+            image_planes[0] = &uint16_memory_pool[0];
+            image_planes[1] = &uint16_memory_pool[aligned_len];
+            image_planes[2] = &uint16_memory_pool[2 * aligned_len];
             for (int i = 0; i < 10; i++) {
                 image_features[i] = &float_memory_pool[i * aligned_len];
                 centroid_features[i] = &float_memory_pool[11 * aligned_len + i * aligned_K];
@@ -53,7 +53,7 @@ namespace fslic {
             fstimer::Scope s("image_copy");
             #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < H; i++) {
-                const uint8_t* image_row = quad_image.get_row(i);
+                const uint16_t* image_row = quad_image.get_row(i);
                 for (int j = 0; j < W; j++) {
                     int index = i * W + j;
                     image_planes[0][index] = image_row[4 * j];
@@ -67,27 +67,10 @@ namespace fslic {
             fstimer::Scope s("feature_map");
 
             // l1, l2, a1, a2, b1, b2
-            float color_sine_map[256];
-            float color_cosine_map[256];
-            float L_sine_map[256];
-            float L_cosine_map[256];
             std::vector<float> width_cosine_map(W);
             std::vector<float> width_sine_map(W);
             std::vector<float> height_cosine_map(H);
             std::vector<float> height_sine_map(H);
-            for (int X = 0; X < 256; X++) {
-                float theta = halfPI * (X / 255.0f);
-                float cosine = cos(theta), sine = sin(theta);
-                color_cosine_map[X] = C_color * cosine * 2.55f;
-    			color_sine_map[X] = C_color * sine * 2.55f;
-            }
-
-            for (int X = 0; X < 256; X++) {
-                float theta = halfPI * (X / 255.0f);
-                L_cosine_map[X] = C_color * cos(theta);
-                L_sine_map[X] = C_color * sin(theta);
-            }
-
             for (int i = 0; i < H; i++) {
                 float theta = i * (halfPI / S);
                 height_cosine_map[i] = C_spatial * cos(theta);
@@ -100,17 +83,33 @@ namespace fslic {
                 width_sine_map[i] = C_spatial * sin(theta);
             }
 
-            const uint8_t* __restrict L = &image_planes[0][0];
-            const uint8_t* __restrict A = &image_planes[1][0];
-            const uint8_t* __restrict B = &image_planes[2][0];
+            const uint16_t* __restrict L = &image_planes[0][0];
+            const uint16_t* __restrict A = &image_planes[1][0];
+            const uint16_t* __restrict B = &image_planes[2][0];
             #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < len; i++) {
-                image_features[0][i] = L_cosine_map[L[i]];
-    			image_features[1][i] = L_sine_map[L[i]];
-    			image_features[2][i] = color_cosine_map[A[i]];
-    			image_features[3][i] = color_sine_map[A[i]];
-    			image_features[4][i] = color_cosine_map[B[i]];
-    			image_features[5][i] = color_sine_map[B[i]];
+                {
+                    float X = L[i] / (float)(1 << color_shift);
+                    float theta = halfPI * (X / 100.0f);
+                    float cosine = cos(theta), sine = sin(theta);
+                    image_features[0][i] = C_color * cosine;
+        			image_features[1][i] = C_color * sine;
+                }
+
+                {
+                    float X = A[i] / (float)(1 << color_shift);
+                    float theta = halfPI * (X / 255.0f);
+                    float cosine = cos(theta), sine = sin(theta);
+                    image_features[2][i] = C_color * cosine;
+                    image_features[3][i] = C_color * sine;
+                }
+                {
+                    float X = B[i] / (float)(1 << color_shift);
+                    float theta = halfPI * (X / 255.0f);
+                    float cosine = cos(theta), sine = sin(theta);
+                    image_features[4][i] = C_color * cosine;
+                    image_features[5][i] = C_color * sine;
+                }
             }
             // x1, x2, y1, y2
 
@@ -304,10 +303,6 @@ namespace fslic {
 
         normalize_features(centroid_features, wsums, K);
         delete [] wsums;
-    }
-
-    void ContextLSC::rgb_to_lab(uint8_t *quad_image, int size) {
-        rgb_to_cielab(quad_image, quad_image, size, true);
     }
 
 

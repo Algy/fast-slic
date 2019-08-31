@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <vector>
 #include "parallel.h"
+#include "simd-helper.hpp"
 /*
 def get_xyz_nonlin_tbl(a):
     v = a / 255.
@@ -278,6 +279,7 @@ static float  _srgb_gamma_tbl[256] = {
 #define srgb_shift 13
 #define srgb_max (1 << srgb_shift)
 #define lab_shift 16
+#define output_shift 3
 
 class FastCIELabCvt {
 public:
@@ -301,8 +303,7 @@ public:
     }
 
 
-    template <bool scale_lab = false>
-    inline void convert(uint8_t R, uint8_t G, uint8_t B, uint8_t& l, uint8_t& a, uint8_t& b) {
+    inline void convert(uint8_t R, uint8_t G, uint8_t B, uint16_t& l, uint16_t& a, uint16_t& b) {
         int sr = srgb_gamma_tbl[R], sg = srgb_gamma_tbl[G], sb = srgb_gamma_tbl[B];
 
         int xr = (Cb[0] * sr + Cb[1] * sg + Cb[2] * sb) >> lab_shift;
@@ -315,13 +316,9 @@ public:
         int ciea = 500 * (fx - fy) + (128 << srgb_shift); // to positive integer
         int cieb = 200 * (fy - fz) + (128 << srgb_shift); // to positive integer
 
-        if (scale_lab) {
-            ciel = ciel * 255 / 100;
-        }
-
-        l = (uint8_t)((unsigned)ciel >> srgb_shift);
-        a = (uint8_t)((unsigned)ciea >> srgb_shift);
-        b = (uint8_t)((unsigned)cieb >> srgb_shift);
+        l = (uint16_t)((unsigned)ciel >> (srgb_shift - output_shift));
+        a = (uint16_t)((unsigned)ciea >> (srgb_shift - output_shift));
+        b = (uint16_t)((unsigned)cieb >> (srgb_shift - output_shift));
     }
 
 private:
@@ -334,33 +331,22 @@ private:
 
 static FastCIELabCvt fast_cielab_cvt;
 
-static void rgb_to_cielab(const uint8_t* aligned_quad_image, uint8_t *out, int size, bool scale_L = false) {
-    if (scale_L) {
-        #pragma omp parallel for num_threads(fsparallel::nth())
-        for (int s = 0; s < size; s += 4) {
-            fast_cielab_cvt.convert<true>(
-                aligned_quad_image[s],
-                aligned_quad_image[s+1],
-                aligned_quad_image[s+2],
-                out[s],
-                out[s+1],
-                out[s+2]
+static void rgb_to_cielab(const uint8_t* image, int H, int W, simd_helper::AlignedArray<uint16_t> &arr, int &shift_out) {
+    #pragma omp parallel for num_threads(fsparallel::nth())
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            int index = W * i + j;
+            fast_cielab_cvt.convert(
+                image[3 * index],
+                image[3 * index + 1],
+                image[3 * index + 2],
+                arr.get(i, 4 * j),
+                arr.get(i, 4 * j + 1),
+                arr.get(i, 4 * j + 2)
             );
         }
-    } else {
-        #pragma omp parallel for num_threads(fsparallel::nth())
-        for (int s = 0; s < size; s += 4) {
-            fast_cielab_cvt.convert<false>(
-                aligned_quad_image[s],
-                aligned_quad_image[s+1],
-                aligned_quad_image[s+2],
-                out[s],
-                out[s+1],
-                out[s+2]
-            );
-        }
-
     }
+    shift_out = output_shift;
 }
 
 static void rgb_to_cielab_orig(const uint8_t* image, float *out, int size) {

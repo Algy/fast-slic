@@ -6,22 +6,23 @@
 
 inline void get_assignment_value_vec(
         const Cluster* cluster,
-        const uint8_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
+        const uint16_t* img_quad_row, const uint16_t* spatial_dist_patch_row,
         const uint16_t* min_dist_row, const uint16_t* assignment_row,
-        uint16x8_t cluster_number_vec, uint8x16_t cluster_color_vec,
+        uint16x8_t cluster_number_vec, uint16x8_t cluster_color_vec,
         uint16x8_t& new_min_dist, uint16x8_t& new_assignment
         ) {
     uint16x8_t spatial_dist_vec = vld1q_u16(spatial_dist_patch_row);
-    uint8x16_t image_segment = vld1q_u8(img_quad_row);
-    uint8x16_t image_segment_2 = vld1q_u8(img_quad_row + 16);
+    uint16x8_t image_segment_1 = vld1q_u16(img_quad_row);
+    uint16x8_t image_segment_2 = vld1q_u16(img_quad_row + 8);
+    uint16x8_t image_segment_3 = vld1q_u16(img_quad_row + 16);
+    uint16x8_t image_segment_4 = vld1q_u16(img_quad_row + 24);
 
-    uint8x16_t abs_segment = vabdq_u8(image_segment, cluster_color_vec);
-    uint8x16_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
+    uint16x8_t abs_segment_1 = vabdq_u8(image_segment_1, cluster_color_vec);
+    uint16x8_t abs_segment_2 = vabdq_u8(image_segment_2, cluster_color_vec);
+    uint16x8_t abs_segment_3 = vabdq_u8(image_segment_3, cluster_color_vec);
+    uint16x8_t abs_segment_4 = vabdq_u8(image_segment_4, cluster_color_vec);
 
-    uint32x4_t sad_segment = vpaddlq_u16(vpaddlq_u8(abs_segment));
-    uint32x4_t sad_segment_2 = vpaddlq_u16(vpaddlq_u8(abs_segment_2));
-
-    uint16x8_t color_dist_vec = vcombine_u16(vmovn_u32(sad_segment), vmovn_u32(sad_segment_2));
+    uint16x8_t color_dist_vec = vpaddq_u16(vpaddq_u16(abs_segment_1, abs_segment_2), vpaddq_u16(abs_segment_3, abs_segment_4));
 
     uint16x8_t dist_vec = vaddq_u16(color_dist_vec, spatial_dist_vec);
     uint16x8_t old_assignment = vld1q_u16(assignment_row);
@@ -60,28 +61,20 @@ namespace fslic {
     				cluster_number
     			};
 
-    			uint8x16_t cluster_color_vec = {
-    				(uint8_t)cluster->r,
-    				(uint8_t)cluster->g,
-    				(uint8_t)cluster->b,
+    			uint16x8_t cluster_color_vec = {
+    				(uint16_t)cluster->r,
+    				(uint16_t)cluster->g,
+    				(uint16_t)cluster->b,
     				0,
-    				(uint8_t)cluster->r,
-    				(uint8_t)cluster->g,
-    				(uint8_t)cluster->b,
-    				0,
-    				(uint8_t)cluster->r,
-    				(uint8_t)cluster->g,
-    				(uint8_t)cluster->b,
-    				0,
-    				(uint8_t)cluster->r,
-    				(uint8_t)cluster->g,
-    				(uint8_t)cluster->b,
+    				(uint16_t)cluster->r,
+    				(uint16_t)cluster->g,
+    				(uint16_t)cluster->b,
     				0
     			};
                 int16_t patch_height = spatial_dist_patch.get_height();
     			for (int16_t i = fit_to_stride(y_lo) - y_lo; i < patch_height; i += subsample_stride) {
     				const uint16_t* spatial_dist_patch_base_row = spatial_dist_patch.get_row(i);
-                    const uint8_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
+                    const uint16_t *img_quad_base_row = quad_image.get_row(y_lo + i, 4 * x_lo);
                     uint16_t* assignment_base_row = assignment.get_row(i + y_lo, x_lo);
                     uint16_t* min_dist_base_row = min_dists.get_row(i + y_lo, x_lo);
 
@@ -89,7 +82,7 @@ namespace fslic {
     		uint16x8_t new_min_dist, new_assignment; \
     		uint16_t* min_dist_row = min_dist_base_row + j; /* unaligned */ \
     		uint16_t* assignment_row = assignment_base_row + j;  /* unaligned */ \
-    		const uint8_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
+    		const uint16_t* img_quad_row = img_quad_base_row + 4 * j; /*Image rows are not aligned due to x_lo*/ \
     		const uint16_t* spatial_dist_patch_row = (uint16_t *)HINT_ALIGNED_AS(spatial_dist_patch_base_row + j, 16); /* Spatial distance patch is aligned */ \
     		get_assignment_value_vec( \
     			cluster, \
