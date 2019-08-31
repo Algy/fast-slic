@@ -43,7 +43,8 @@ def build_extensions(self):
         num_jobs = multiprocessing.cpu_count()
 
     with Pool(num_jobs) as pool:
-        pool.map(self.build_extension, self.extensions)
+        results = pool.map(self.build_extension, self.extensions)
+        list(results)
 
 def compile(
     self, sources, output_dir=None, macros=None, include_dirs=None,
