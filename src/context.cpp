@@ -435,16 +435,6 @@ namespace fslic {
     }
 
     void ContextRealDistNoQ::before_iteration() {
-        if (float_color) {
-            lab_image.resize(3 * H * W, 0);
-            rgb_to_cielab_orig(image, &lab_image[0], lab_image.size());
-            for (int k = 0; k < K; k++) {
-                int y = clusters[k].y, x = clusters[k].x;
-                clusters[k].r = lab_image[3 * (W * y + x)];
-                clusters[k].g = lab_image[3 * (W * y + x) + 1];
-                clusters[k].b = lab_image[3 * (W * y + x) + 2];
-            }
-        }
     }
 
     bool ContextRealDistNoQ::centroid_quantization_enabled() {
@@ -453,19 +443,13 @@ namespace fslic {
 
     void ContextRealDistNoQ::assign_clusters(const Cluster** target_clusters, int size) {
         if (manhattan_spatial_dist) {
-            if (float_color)
-                assign_clusters_proto<true, true>(target_clusters, size);
-            else
-                assign_clusters_proto<true, false>(target_clusters, size);
+            assign_clusters_proto<true>(target_clusters, size);
         } else {
-            if (float_color)
-                assign_clusters_proto<false, true>(target_clusters, size);
-            else
-                assign_clusters_proto<false, false>(target_clusters, size);
+            assign_clusters_proto<false>(target_clusters, size);
         }
     }
 
-    template<bool use_manhattan, bool use_float_color>
+    template<bool use_manhattan>
     void ContextRealDistNoQ::assign_clusters_proto(const Cluster** target_clusters, int size) {
         float coef = 1.0f / ((float)S / compactness);
         coef *= (1 << color_shift);
@@ -484,16 +468,9 @@ namespace fslic {
                 uint16_t* __restrict assignment_row = assignment.get_row(i);
                 float* __restrict min_dist_row = min_dists.get_row(i);
                 for (int j = x_lo; j < x_hi; j++) {
-                    float dr, dg, db;
-                    if (use_float_color) {
-                        dr = lab_image[3 * W * i + 3 * j] - cluster_r;
-                        dg = lab_image[3 * W * i + 3 * j + 1] - cluster_g;
-                        db = lab_image[3 * W * i + 3 * j + 2] - cluster_b;
-                    } else {
-                        dr = quad_image.get(i, 4 * j) - cluster_r;
-                        dg = quad_image.get(i, 4 * j + 1) - cluster_g;
-                        db = quad_image.get(i, 4 * j + 2) - cluster_b;
-                    }
+                    float dr = quad_image.get(i, 4 * j) - cluster_r;
+                    float dg = quad_image.get(i, 4 * j + 1) - cluster_g;
+                    float db = quad_image.get(i, 4 * j + 2) - cluster_b;
                     float dy = coef * (i - cluster_y), dx = coef * (j - cluster_x);
 
                     float distance;

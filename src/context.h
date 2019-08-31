@@ -109,13 +109,11 @@ namespace fslic {
     public:
         using ContextRealDist::ContextRealDist;
         bool float_color = true;
-    private:
-        std::vector<float> lab_image;
     protected:
         virtual void assign_clusters(const Cluster **target_clusters, int size);
         virtual bool centroid_quantization_enabled();
     private:
-        template<bool use_manhattan, bool use_float_color>
+        template<bool use_manhattan>
         void assign_clusters_proto(const Cluster **target_clusters, int size);
     protected:
         virtual void before_iteration();
