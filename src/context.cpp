@@ -123,7 +123,16 @@ namespace fslic {
                     }
                     color_shift = 0;
                 }
+                for (int k = 0; k < K; k++) {
+                    int y = clusters[k].y, x = clusters[k].x;
+                    y = clamp(y, 0, H - 1);
+                    x = clamp(x, 0, W - 1);
+                    clusters[k].r = quad_image.get(y, 4 * x);
+                    clusters[k].g = quad_image.get(y, 4 * x + 1);
+                    clusters[k].b = quad_image.get(y, 4 * x + 2);
+                }
             }
+
             {
                 fstimer::Scope s("write_to_buffer");
                 #pragma omp parallel for num_threads(fsparallel::nth())
