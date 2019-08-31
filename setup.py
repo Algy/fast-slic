@@ -164,7 +164,6 @@ cpp_sources = [
     "src/context-impl.cpp",
     "src/lsc.cpp",
     "src/lsc-builder.cpp",
-    "cfast_slic.pyx"
 ]
 
 
