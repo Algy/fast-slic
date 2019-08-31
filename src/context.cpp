@@ -138,7 +138,7 @@ namespace fslic {
             }
 
             subsample_rem = 0;
-            subsample_stride = my_min<int>(subsample_stride_config, (int)(2 * S + 1));
+            subsample_stride = subsample_stride_config;
             {
                 fstimer::Scope s("before_iteration");
                 before_iteration();
@@ -441,13 +441,15 @@ namespace fslic {
     }
 
     void ContextRealDistNoQ::before_iteration() {
-        lab_image.resize(3 * H * W, 0);
-        rgb_to_cielab_orig(image, &lab_image[0], lab_image.size());
-        for (int k = 0; k < K; k++) {
-            int y = clusters[k].y, x = clusters[k].x;
-            clusters[k].r = lab_image[3 * (W * y + x)];
-            clusters[k].g = lab_image[3 * (W * y + x) + 1];
-            clusters[k].b = lab_image[3 * (W * y + x) + 2];
+        if (float_color) {
+            lab_image.resize(3 * H * W, 0);
+            rgb_to_cielab_orig(image, &lab_image[0], lab_image.size());
+            for (int k = 0; k < K; k++) {
+                int y = clusters[k].y, x = clusters[k].x;
+                clusters[k].r = lab_image[3 * (W * y + x)];
+                clusters[k].g = lab_image[3 * (W * y + x) + 1];
+                clusters[k].b = lab_image[3 * (W * y + x) + 2];
+            }
         }
     }
 
@@ -457,13 +459,19 @@ namespace fslic {
 
     void ContextRealDistNoQ::assign_clusters(const Cluster** target_clusters, int size) {
         if (manhattan_spatial_dist) {
-            assign_clusters_proto<true>(target_clusters, size);
+            if (float_color)
+                assign_clusters_proto<true, true>(target_clusters, size);
+            else
+                assign_clusters_proto<true, false>(target_clusters, size);
         } else {
-            assign_clusters_proto<false>(target_clusters, size);
+            if (float_color)
+                assign_clusters_proto<false, true>(target_clusters, size);
+            else
+                assign_clusters_proto<false, false>(target_clusters, size);
         }
     }
 
-    template<bool use_manhattan>
+    template<bool use_manhattan, bool use_float_color>
     void ContextRealDistNoQ::assign_clusters_proto(const Cluster** target_clusters, int size) {
         float coef = 1.0f / ((float)S / compactness);
 
@@ -477,15 +485,21 @@ namespace fslic {
             uint16_t cluster_no = cluster->number;
             for (int i = y_lo; i < y_hi; i++) {
                 if (!valid_subsample_row(i)) continue;
-                const float* __restrict image_row = &lab_image[3 * W * i];
+
                 uint16_t* __restrict assignment_row = assignment.get_row(i);
                 float* __restrict min_dist_row = min_dists.get_row(i);
                 for (int j = x_lo; j < x_hi; j++) {
-                    float dr = image_row[3 * j] - cluster_r,
-                        dg = image_row[3 * j + 1] - cluster_g,
-                        db = image_row[3 * j + 2] - cluster_b,
-                        dy = coef * (i - cluster_y),
-                        dx = coef * (j - cluster_x);
+                    float dr, dg, db;
+                    if (use_float_color) {
+                        dr = lab_image[3 * W * i + 3 * j] - cluster_r;
+                        dg = lab_image[3 * W * i + 3 * j + 1] - cluster_g;
+                        db = lab_image[3 * W * i + 3 * j + 2] - cluster_b;
+                    } else {
+                        dr = quad_image.get(i, 4 * j) - cluster_r;
+                        dg = quad_image.get(i, 4 * j + 1) - cluster_g;
+                        db = quad_image.get(i, 4 * j + 2) - cluster_b;
+                    }
+                    float dy = coef * (i - cluster_y), dx = coef * (j - cluster_x);
 
                     float distance;
                     if (use_manhattan) {

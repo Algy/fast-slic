@@ -77,6 +77,11 @@ class SlicRealDistNoQ(SlicRealDist):
     arch_name = 'standard'
     real_dist_type = 'noq'
 
+    def __init__(self, *args, **kwargs):
+        float_color = kwargs.pop("float_color", True)
+        super(SlicRealDistNoQ, self).__init__(*args, **kwargs)
+        self._slic_model.float_color = float_color
+
 class LSC(SlicRealDist):
     arch_name = 'standard'
     real_dist_type = 'lsc'

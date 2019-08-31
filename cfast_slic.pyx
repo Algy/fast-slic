@@ -32,6 +32,7 @@ cdef class SlicModel:
         self.real_dist = real_dist
         self.real_dist_type = "standard"
         self.convert_to_lab = False
+        self.float_color = True
 
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
@@ -161,6 +162,7 @@ cdef class SlicModel:
         cdef np.ndarray[np.uint16_t, ndim=2, mode='c'] assignments = np.zeros([H, W], dtype=np.uint16)
         cdef cfast_slic.Context *context
         cdef cfast_slic.ContextRealDist *context_real_dist
+        cdef cfast_slic.ContextRealDistNoQ *c_noq
         cdef ContextLSCBuilder lsc_builder
         lsc_builder.set_arch(self.arch_name)
 
@@ -218,13 +220,15 @@ cdef class SlicModel:
                     c_clusters,
                 )
             elif self.real_dist_type == 'noq':
-                context_real_dist = new cfast_slic.ContextRealDistNoQ(
+                c_noq = new cfast_slic.ContextRealDistNoQ(
                     H,
                     W,
                     K,
                     &image[0, 0, 0],
                     c_clusters,
                 )
+                c_noq.float_color = self.float_color
+                context_real_dist = c_noq
             else:
                 raise RuntimeError("No such real_dist_type " + repr(self.real_dist_type))
 

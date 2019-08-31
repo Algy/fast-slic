@@ -59,6 +59,7 @@ cdef extern from "src/context.h" namespace "fslic":
         ContextRealDistL2(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
     cdef cppclass ContextRealDistNoQ(ContextRealDist):
+        bool float_color
         ContextRealDistNoQ(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
     cdef cppclass ContextBuilder:
@@ -109,6 +110,7 @@ cdef class SlicModel:
     cdef public object preemptive
     cdef public float preemptive_thres
     cdef public object manhattan_spatial_dist
+    cdef public object float_color
     cdef public object last_timing_report
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
