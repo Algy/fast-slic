@@ -59,7 +59,7 @@ namespace fslic {
               assignment(H, W, S, S, S, S),
               min_dists(H, W, S, S, S, S),
               spatial_dist_patch(2 * S + 1, 2 * S + 1),
-              preemptive_grid(H, W, S) {};
+              preemptive_grid(H, W, K, S) {};
         virtual ~BaseContext();
     public:
         void initialize_clusters();

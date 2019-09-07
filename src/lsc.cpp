@@ -228,7 +228,7 @@ namespace fslic {
         std::vector<PreemptiveTile> active_tiles = preemptive_grid.get_active_tiles();
         std::vector<bool> cluster_updatable(K);
         for (int k = 0; k < K; k++) {
-            cluster_updatable[k] = preemptive_grid.is_updatable_cluster(clusters[k]);
+            cluster_updatable[k] = clusters[k].is_updatable;
         }
         for (int k = 0; k < K; k++) {
             if (!cluster_updatable[k]) continue;

@@ -14,6 +14,7 @@ cdef extern from "src/fast-slic-common.h":
         float a
         uint16_t number
         uint8_t is_active
+        uint8_t is_updatable
         uint32_t num_members
 
     ctypedef struct Connectivity:

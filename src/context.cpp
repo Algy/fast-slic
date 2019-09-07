@@ -71,13 +71,15 @@ namespace fslic {
                 clusters[acc_k].y = center_y;
                 clusters[acc_k].x = center_x;
                 clusters[acc_k].is_active = 1;
+                clusters[acc_k].is_updatable = 1;
 
                 acc_k++;
             }
         }
 
         while (acc_k < K) {
-            clusters[acc_k].is_active = 0;
+            clusters[acc_k].is_active = 1;
+            clusters[acc_k].is_updatable = 1;
             clusters[acc_k].y = H / 2;
             clusters[acc_k].x = W / 2;
             acc_k++;
@@ -150,7 +152,7 @@ namespace fslic {
                 fstimer::Scope s("before_iteration");
                 before_iteration();
             }
-            preemptive_grid.initialize(preemptive, preemptive_thres, subsample_stride);
+            preemptive_grid.initialize(clusters, preemptive, preemptive_thres, subsample_stride);
 
             for (int i = 0; i < max_iter; i++) {
                 {
@@ -160,9 +162,7 @@ namespace fslic {
 
                 {
                     fstimer::Scope s("update");
-                    preemptive_grid.set_old_assignment(this->assignment);
                     update();
-                    preemptive_grid.set_new_assignment(this->assignment);
                 }
 
                 {
@@ -171,7 +171,7 @@ namespace fslic {
                 }
                 subsample_rem = (subsample_rem + 1) % subsample_stride;
             }
-            preemptive_grid.finalize();
+            preemptive_grid.finalize(clusters);
 
             {
                 fstimer::Scope s("full_assign");
@@ -214,7 +214,6 @@ namespace fslic {
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
             if (!clusters[k].is_active) continue;
-            if (!preemptive_grid.is_active_cluster(clusters[k])) continue;
             int y = clusters[k].y, x = clusters[k].x;
             grid[cell_W * (y / T) + (x / T)].push_back(&clusters[k]);
         }
@@ -299,13 +298,11 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::update() {
+        preemptive_grid.set_old_clusters(clusters);
+
         std::vector<int32_t> num_cluster_members(K, 0);
         std::vector<int32_t> cluster_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
         std::vector<PreemptiveTile> active_tiles = preemptive_grid.get_active_tiles();
-        std::vector<bool> cluster_updatable(K);
-        for (int k = 0; k < K; k++) {
-            cluster_updatable[k] = preemptive_grid.is_updatable_cluster(clusters[k]);
-        }
 
         #pragma omp parallel num_threads(fsparallel::nth())
         {
@@ -327,23 +324,20 @@ namespace fslic {
                     }
                 }
             } else {
-                #pragma omp for
-                for (int tile_ix = 0; tile_ix < (int)active_tiles.size(); tile_ix++) {
-                    PreemptiveTile &tile = active_tiles[tile_ix];
-                    for (int i = fit_to_stride(tile.sy); i < tile.ey; i += subsample_stride) {
-                        for (int j = tile.sx; j < tile.ex; j++) {
-                            uint16_t cluster_no = assignment.get(i, j);
-                            if (cluster_no == 0xFFFF || !cluster_updatable[cluster_no]) continue;
-                            local_num_cluster_members[cluster_no]++;
-                            local_acc_vec[5 * cluster_no + 0] += i;
-                            local_acc_vec[5 * cluster_no + 1] += j;
-                            local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
-                            local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
-                            local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
-                        }
+                #pragma omp for schedule(static, 1)
+                for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
+                    for (int j = 0; j < W; j++) {
+                        if (!preemptive_grid.get_active_cell(i, j)) continue;
+                        uint16_t cluster_no = assignment.get(i, j);
+                        if (cluster_no == 0xFFFF) continue;
+                        local_num_cluster_members[cluster_no]++;
+                        local_acc_vec[5 * cluster_no + 0] += i;
+                        local_acc_vec[5 * cluster_no + 1] += j;
+                        local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
+                        local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
+                        local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
                     }
                 }
-
             }
 
             #pragma omp critical
@@ -360,9 +354,9 @@ namespace fslic {
 
         bool centroid_qt = centroid_quantization_enabled();
         for (int k = 0; k < K; k++) {
-            if (!cluster_updatable[k]) continue;
-            int32_t num_current_members = num_cluster_members[k];
             Cluster *cluster = &clusters[k];
+            if (!cluster->is_updatable) continue;
+            int32_t num_current_members = num_cluster_members[k];
             cluster->num_members = num_current_members;
 
             if (num_current_members == 0) continue;
@@ -382,6 +376,11 @@ namespace fslic {
                 cluster->g = (float)cluster_acc_vec[5 * k + 3] / num_current_members;
                 cluster->b = (float)cluster_acc_vec[5 * k + 4] / num_current_members;
             }
+        }
+
+        {
+            fstimer::Scope s("set_new_clusters");
+            preemptive_grid.set_new_clusters(clusters);
         }
     }
 

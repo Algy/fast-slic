@@ -17,6 +17,7 @@ typedef struct Cluster {
 
     cluster_no_t number; // 2 bytes
     uint8_t is_active;
+    uint8_t is_updatable;
     uint32_t num_members;
 
 } Cluster;
