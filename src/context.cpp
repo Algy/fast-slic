@@ -211,7 +211,7 @@ namespace fslic {
             clusters[k].y = clamp<DistType>(clusters[k].y, 0, H - 1);
         }
 
-        int T = 2 * S;
+        int T = 2 * S + 32;
         int cell_W = ceil_int(W, T), cell_H = ceil_int(H, T);
         std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
         for (int k = 0; k < K; k++) {
