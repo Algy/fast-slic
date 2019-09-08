@@ -33,6 +33,7 @@ cdef class SlicModel:
         self.real_dist_type = "standard"
         self.convert_to_lab = False
         self.float_color = True
+        self.debug_mode = False
 
         self._c_clusters = <cfast_slic.Cluster *>malloc(sizeof(cfast_slic.Cluster) * num_components)
         memset(self._c_clusters, 0, sizeof(cfast_slic.Cluster) * num_components)
@@ -183,6 +184,7 @@ cdef class SlicModel:
                 context.preemptive = self.preemptive
                 context.preemptive_thres = self.preemptive_thres
                 context.manhattan_spatial_dist = self.manhattan_spatial_dist
+                context.debug_mode = self.debug_mode
                 with nogil:
                     context.initialize_state()
                     context.iterate(
@@ -191,6 +193,7 @@ cdef class SlicModel:
                     )
             finally:
                 self.last_timing_report = context.get_timing_report().decode("utf-8")
+                self.last_recorder_report = context.get_recorder_report()
                 del context
         else:
             if self.real_dist_type == 'standard':
@@ -241,6 +244,7 @@ cdef class SlicModel:
                 context_real_dist.preemptive = self.preemptive
                 context_real_dist.preemptive_thres = self.preemptive_thres
                 context_real_dist.manhattan_spatial_dist = self.manhattan_spatial_dist
+                context_real_dist.debug_mode = self.debug_mode
                 with nogil:
                     context_real_dist.initialize_state()
                     context_real_dist.iterate(
@@ -249,6 +253,7 @@ cdef class SlicModel:
                     )
             finally:
                 self.last_timing_report = context_real_dist.get_timing_report().decode("utf-8")
+                self.last_recorder_report = context_real_dist.get_recorder_report()
                 del context_real_dist
         result = assignments.astype(np.int16)
         result[result == 0xFFFF] = -1

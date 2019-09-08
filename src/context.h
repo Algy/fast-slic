@@ -15,6 +15,7 @@
 #include "simd-helper.hpp"
 #include "fast-slic-common.h"
 #include "preemptive.h"
+#include "recorder.h"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -32,6 +33,7 @@ namespace fslic {
         float preemptive_thres = 0.01;
 
         bool manhattan_spatial_dist = true;
+        bool debug_mode = false;
     protected:
         int H, W, K;
         const uint8_t* image;
@@ -50,6 +52,7 @@ namespace fslic {
         simd_helper::AlignedArray<DistType> spatial_dist_patch;
 
         PreemptiveGrid preemptive_grid;
+        Recorder<DistType> recorder;
     public:
         std::string last_timing_report;
     public:
@@ -59,7 +62,8 @@ namespace fslic {
               assignment(H, W, S, S, S, S),
               min_dists(H, W, S, S, S, S),
               spatial_dist_patch(2 * S + 1, 2 * S + 1),
-              preemptive_grid(H, W, K, S) {};
+              preemptive_grid(H, W, K, S),
+              recorder(H, W, K) {};
         virtual ~BaseContext();
     public:
         void initialize_clusters();
@@ -68,6 +72,7 @@ namespace fslic {
         bool parallelism_supported();
         void iterate(uint16_t *assignment, int max_iter);
         std::string get_timing_report() { return last_timing_report; };
+        std::string get_recorder_report() { return recorder.get_report(); };
     private:
         void prepare_spatial();
         void assign();

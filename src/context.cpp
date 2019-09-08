@@ -153,7 +153,8 @@ namespace fslic {
                 before_iteration();
             }
             preemptive_grid.initialize(clusters, preemptive, preemptive_thres, subsample_stride);
-
+            recorder.initialize(debug_mode);
+            recorder.push(-1, this->assignment, this->min_dists, this->clusters);
             for (int i = 0; i < max_iter; i++) {
                 {
                     fstimer::Scope s("assign");
@@ -169,6 +170,7 @@ namespace fslic {
                     fstimer::Scope s("after_update");
                     after_update();
                 }
+                recorder.push(i, this->assignment, this->min_dists, this->clusters);
                 subsample_rem = (subsample_rem + 1) % subsample_stride;
             }
             preemptive_grid.finalize(clusters);

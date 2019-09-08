@@ -42,6 +42,7 @@ cdef extern from "src/context.h" namespace "fslic":
         float preemptive_thres
 
         bool manhattan_spatial_dist
+        bool debug_mode
 
         BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
         void initialize_clusters() nogil
@@ -49,6 +50,7 @@ cdef extern from "src/context.h" namespace "fslic":
         bool parallelism_supported() nogil
         void iterate(uint16_t *assignment, int max_iter) nogil except +
         string get_timing_report();
+        string get_recorder_report();
 
     cdef cppclass Context(BaseContext[uint16_t]):
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
@@ -111,8 +113,11 @@ cdef class SlicModel:
     cdef public object preemptive
     cdef public float preemptive_thres
     cdef public object manhattan_spatial_dist
+    cdef public object debug_mode
+
     cdef public object float_color
     cdef public object last_timing_report
+    cdef public object last_recorder_report
 
     cpdef void initialize(self, const uint8_t [:, :, ::1] image)
     cpdef iterate(self, const uint8_t [:, :, ::1] image, int max_iter, float compactness, float min_size_factor, uint8_t subsample_stride)

@@ -13,6 +13,7 @@ class BaseSlic(object):
                  preemptive=False,
                  preemptive_thres=0.05,
                  manhattan_spatial_dist=False,
+                 debug_mode=False,
                  num_threads=-1):
         self.compactness = compactness
         self.subsample_stride = subsample_stride
@@ -25,6 +26,7 @@ class BaseSlic(object):
         self._slic_model.preemptive_thres = preemptive_thres
         self._slic_model.manhattan_spatial_dist = manhattan_spatial_dist
         self._slic_model.num_threads = num_threads
+        self._slic_model.debug_mode = debug_mode
 
     @property
     def convert_to_lab(self):
