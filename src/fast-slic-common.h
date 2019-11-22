@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <chrono>
 #include <iostream>
+#include <limits>
+
 typedef std::chrono::high_resolution_clock Clock;
 
 typedef uint16_t cluster_no_t;
@@ -52,6 +54,19 @@ static T fast_abs(T n)
     if (n < 0)
         return -n;
     return n;
+}
+
+template <typename T>
+static T udiff(T a, T b) {
+    return a > b? a - b : b - a;
+}
+
+template <typename T>
+static T uadds(T a, T b) {
+    T c = a + b;
+    if (c < a)
+        c = std::numeric_limits<T>::max();
+    return c;
 }
 
 template <typename T>

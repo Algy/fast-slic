@@ -124,9 +124,9 @@ namespace fslic {
         virtual void before_iteration();
     };
 
-    class Context : public BaseContext<uint16_t> {
+    class Context : public BaseContext<uint8_t> {
     public:
-        using BaseContext<uint16_t>::BaseContext;
+        using BaseContext<uint8_t>::BaseContext;
     };
 
     class ContextSIMD : public Context {

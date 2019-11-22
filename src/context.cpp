@@ -5,6 +5,7 @@
 #include "parallel.h"
 
 #include <limits>
+#include <type_traits>
 
 namespace fslic {
     template<typename DistType>
@@ -207,8 +208,8 @@ namespace fslic {
 
         // safeguard
         for (int k = 0; k < K; k++) {
-            clusters[k].x = clamp<DistType>(clusters[k].x, 0, W - 1);
-            clusters[k].y = clamp<DistType>(clusters[k].y, 0, H - 1);
+            clusters[k].x = clamp<float>(clusters[k].x, 0, W - 1);
+            clusters[k].y = clamp<float>(clusters[k].y, 0, H - 1);
         }
 
         int T = 2 * S + 32;
@@ -259,12 +260,12 @@ namespace fslic {
     void BaseContext<DistType>::assign_clusters(const Cluster** target_clusters, int size) {
         DistType* __restrict dist_row = new DistType[2 * S + 1];
 
-        const int16_t S_2 = 2 * S;
+        const int S_2 = 2 * S;
 
         for (int cidx = 0; cidx < size; cidx++) {
             const Cluster* cluster = target_clusters[cidx];
-            int16_t cluster_y = cluster->y, cluster_x = cluster->x;
-            int16_t cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
+            int cluster_y = cluster->y, cluster_x = cluster->x;
+            DistType cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
             uint16_t cluster_no = cluster->number;
 
             for (int i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
@@ -274,19 +275,21 @@ namespace fslic {
                 DistType* __restrict min_dist_row = min_dists.get_row(i, cluster_x - S);
                 const DistType* __restrict patch_row = spatial_dist_patch.get_row(i_off);
 
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                for (int j_off = 0; j_off <= S_2; j_off++) {
                     dist_row[j_off] = patch_row[j_off];
                 }
 
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    int16_t r = image_row[4 * j_off],
+                for (int j_off = 0; j_off <= S_2; j_off++) {
+                    DistType r = image_row[4 * j_off],
                         g = image_row[4 * j_off + 1],
                         b = image_row[4 * j_off + 2];
-                    DistType color_dist = fast_abs(r - cluster_r) + fast_abs(g - cluster_g) + fast_abs(b - cluster_b);
-                    dist_row[j_off] += color_dist;
+                    DistType dr = udiff(r, cluster_r), dg = udiff(g, cluster_g), db = udiff(b, cluster_b);
+                    dist_row[j_off] = uadds(dist_row[j_off], dr);
+                    dist_row[j_off] = uadds(dist_row[j_off], dg);
+                    dist_row[j_off] = uadds(dist_row[j_off], db);
                 }
 
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
+                for (int j_off = 0; j_off <= S_2; j_off++) {
                     if (min_dist_row[j_off] > dist_row[j_off]) {
                         min_dist_row[j_off] = dist_row[j_off];
                         assignment_row[j_off] = cluster_no;
@@ -500,6 +503,7 @@ namespace fslic {
 
     template class BaseContext<float>;
     template class BaseContext<double>;
+    template class BaseContext<uint8_t>;
     template class BaseContext<uint16_t>;
     template class BaseContext<uint32_t>;
 };

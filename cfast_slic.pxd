@@ -52,7 +52,7 @@ cdef extern from "src/context.h" namespace "fslic":
         string get_timing_report();
         string get_recorder_report();
 
-    cdef cppclass Context(BaseContext[uint16_t]):
+    cdef cppclass Context(BaseContext[uint8_t]):
         Context(int H, int W, int K, const uint8_t* image, Cluster *clusters) except +
 
     cdef cppclass ContextRealDist(BaseContext[float]):
