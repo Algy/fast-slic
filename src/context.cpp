@@ -3,9 +3,17 @@
 #include "cielab.h"
 #include "timer.h"
 #include "parallel.h"
+#include "tile.h"
 
 #include <limits>
 #include <type_traits>
+
+#include "immintrin.h"
+
+static inline __m256i _mm256_abd_epu8(__m256i a, __m256i b) {
+    return _mm256_or_si256(_mm256_subs_epu8(a,b), _mm256_subs_epu8(b,a));
+}
+
 
 namespace fslic {
     template<typename DistType>
@@ -114,36 +122,41 @@ namespace fslic {
             {
                 fstimer::Scope s("cielab_conversion");
                 if (convert_to_lab) {
-                    rgb_to_cielab(image, H, W, quad_image, color_shift);
-                } else {
-                    #pragma omp parallel num_threads(fsparallel::nth())
-                    for (int i = 0; i < H; i++) {
-                        for (int j = 0; j < W; j++) {
-                            for (int k = 0; k < 3; k++) {
-                                quad_image.get(i, 4 * j + k) = image[i * W * 3 + 3 * j + k];
-                            }
-                        }
+                    #pragma omp parallel for num_threads(fsparallel::nth())
+                    for (int index = 0; index < H * W; index++) {
+                        fast_cielab_cvt.convert(
+                                orig_image[3 * index],
+                                orig_image[3 * index + 1],
+                                orig_image[3 * index + 2],
+                                image[3 * index],
+                                image[3 * index + 1],
+                                image[3 * index + 2]
+                        );
                     }
+                    color_shift = get_cielab_shift();
+                } else {
+                    std::copy(orig_image, orig_image + image.size(), image.begin());
                     color_shift = 0;
                 }
                 for (int k = 0; k < K; k++) {
                     int y = clusters[k].y, x = clusters[k].x;
                     y = clamp(y, 0, H - 1);
                     x = clamp(x, 0, W - 1);
-                    clusters[k].r = quad_image.get(y, 4 * x);
-                    clusters[k].g = quad_image.get(y, 4 * x + 1);
-                    clusters[k].b = quad_image.get(y, 4 * x + 2);
+                    clusters[k].r = image[3 * (y * W + x)];
+                    clusters[k].g = image[3 * (y * W + x) + 1];
+                    clusters[k].b = image[3 * (y * W + x) + 2];
                 }
             }
 
             {
+                fstimer::Scope s("tile_creation");
+                tile_set.set_clusters(clusters, K);
+                tile_set.set_image(&image[0]);
+                tile_set.initialize_dists();
+            }
+
+            {
                 fstimer::Scope s("write_to_buffer");
-                #pragma omp parallel for num_threads(fsparallel::nth())
-                for (int i = 0; i < H; i++) {
-                    for (int j = 0; j < W; j++) {
-                        this->assignment.get(i, j) = 0xFFFF;
-                    }
-                }
                 set_spatial_patch();
             }
 
@@ -155,7 +168,7 @@ namespace fslic {
             }
             preemptive_grid.initialize(clusters, preemptive, preemptive_thres, subsample_stride);
             recorder.initialize(debug_mode);
-            recorder.push(-1, this->assignment, this->min_dists, this->clusters);
+            // recorder.push(-1, this->assignment, this->min_dists, this->clusters);
             for (int i = 0; i < max_iter; i++) {
                 {
                     fstimer::Scope s("assign");
@@ -171,7 +184,7 @@ namespace fslic {
                     fstimer::Scope s("after_update");
                     after_update();
                 }
-                recorder.push(i, this->assignment, this->min_dists, this->clusters);
+                // recorder.push(i, this->assignment, this->min_dists, this->clusters);
                 subsample_rem = (subsample_rem + 1) % subsample_stride;
             }
             preemptive_grid.finalize(clusters);
@@ -182,12 +195,7 @@ namespace fslic {
             }
             {
                 fstimer::Scope s("write_back");
-                #pragma omp parallel for num_threads(fsparallel::nth())
-                for (int i = 0; i < H; i++) {
-                    for (int j = 0; j < W; j++) {
-                        assignment[W * i + j] = this->assignment.get(i, j);
-                    }
-                }
+                tile_set.assign_back(assignment);
             }
             {
                 fstimer::Scope s("enforce_connectivity");
@@ -199,12 +207,7 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::assign() {
-        #pragma omp parallel for num_threads(fsparallel::nth())
-        for (int i = 0; i < H; i++) {
-            for (int j = 0; j < W; j++) {
-                min_dists.get(i, j) = std::numeric_limits<DistType>::max();
-            }
-        }
+        tile_set.reset_dists();
 
         // safeguard
         for (int k = 0; k < K; k++) {
@@ -212,34 +215,9 @@ namespace fslic {
             clusters[k].y = clamp<float>(clusters[k].y, 0, H - 1);
         }
 
-        int T = 2 * S + 32;
-        int cell_W = ceil_int(W, T), cell_H = ceil_int(H, T);
-        std::vector< std::vector<const Cluster*> > grid(cell_W * cell_H);
-        for (int k = 0; k < K; k++) {
-            if (!clusters[k].is_active) continue;
-            int y = clusters[k].y, x = clusters[k].x;
-            grid[cell_W * (y / T) + (x / T)].push_back(&clusters[k]);
-        }
-
-        for (int phase = 0; phase < 4; phase++) {
-            std::vector<int> grid_indices;
-            for (int i = phase / 2; i < cell_H; i += 2) {
-                for (int j = phase % 2; j < cell_W; j += 2) {
-                    grid_indices.push_back(i * cell_W + j);
-                }
-            }
-            #pragma omp parallel num_threads(fsparallel::nth())
-            {
-                std::vector<const Cluster*> target_clusters;
-                #pragma omp for
-                for (int cell_ix = 0; cell_ix < (int)grid_indices.size(); cell_ix++) {
-                    const std::vector<const Cluster*> &clusters_in_cell = grid[grid_indices[cell_ix]];
-                    for (int inst = 0; inst < (int)clusters_in_cell.size(); inst++) {
-                        target_clusters.push_back(clusters_in_cell[inst]);
-                    }
-                }
-                assign_clusters(&target_clusters[0], (int)target_clusters.size());
-            }
+        #pragma omp parallel for num_threads(fsparallel::nth())
+        for (int tile_no = 0; tile_no < tile_set.get_num_tiles(); tile_no++) {
+            assign_clusters(tile_no);
         }
     }
 
@@ -257,129 +235,131 @@ namespace fslic {
     }
 
     template<typename DistType>
-    void BaseContext<DistType>::assign_clusters(const Cluster** target_clusters, int size) {
-        DistType* __restrict dist_row = new DistType[2 * S + 1];
+    void BaseContext<DistType>::assign_clusters(int tile_no) {
+        const uint8_t *r_plane = tile_set.get_color_plane(tile_no, 0);
+        const uint8_t *g_plane = tile_set.get_color_plane(tile_no, 1);
+        const uint8_t *b_plane = tile_set.get_color_plane(tile_no, 2);
+        DistType *min_dists = tile_set.get_tile_min_dists(tile_no);
+        uint8_t *min_neighbor_indices = tile_set.get_tile_min_neighbor_indices(tile_no);
 
-        const int S_2 = 2 * S;
+        auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
+        int neighbor_size = neighbors.size();
+        int tile_memory_size = tile_set.get_tile_memory_size();
 
-        for (int cidx = 0; cidx < size; cidx++) {
-            const Cluster* cluster = target_clusters[cidx];
-            int cluster_y = cluster->y, cluster_x = cluster->x;
-            DistType cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
-            uint16_t cluster_no = cluster->number;
+        for (int nid = 0; nid < neighbor_size; nid++) {
+            const Cluster* cluster = &clusters[neighbors[nid]];
+            __m256i cluster_r = _mm256_set1_epi8((uint8_t)cluster->r);
+            __m256i cluster_g = _mm256_set1_epi8((uint8_t)cluster->g);
+            __m256i cluster_b = _mm256_set1_epi8((uint8_t)cluster->b);
+            __m256i cluster_index = _mm256_set1_epi8((uint8_t)nid);
 
-            for (int i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
-                if (!valid_subsample_row(i)) continue;
-                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
-                uint16_t* __restrict  assignment_row = assignment.get_row(i, cluster_x - S);
-                DistType* __restrict min_dist_row = min_dists.get_row(i, cluster_x - S);
-                const DistType* __restrict patch_row = spatial_dist_patch.get_row(i_off);
+            for (int i = 0; i < tile_memory_size; i += 32) {
+                __m256i old_neighbor_vec = _mm256_loadu_si256((__m256i *)&min_neighbor_indices[i]);
+                __m256i old_min_dists = _mm256_loadu_si256((__m256i *)&min_dists[i]);
+                __m256i r_vec = _mm256_loadu_si256((__m256i *)&r_plane[i]);
+                __m256i g_vec = _mm256_loadu_si256((__m256i *)&g_plane[i]);
+                __m256i b_vec = _mm256_loadu_si256((__m256i *)&b_plane[i]);
+                __m256i dist_r = _mm256_abd_epu8(r_vec, cluster_r);
+                __m256i dist_g = _mm256_abd_epu8(g_vec, cluster_g);
+                __m256i dist_b = _mm256_abd_epu8(b_vec, cluster_b);
+                __m256i dist = _mm256_adds_epu8(_mm256_adds_epu8(dist_r, dist_g), dist_b);
+                __m256i new_min_dists = _mm256_min_epu8(old_min_dists, dist);
+                // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
+                __m256i mask = _mm256_cmpeq_epi8(old_min_dists, new_min_dists);
+                // if mask[i+7:i] == 0xFF, choose b[i+7:i], otherwise choose a[i+7:i]
+                __m256i new_neighbor_vec = _mm256_blendv_epi8(cluster_index, old_neighbor_vec, mask);
 
-                for (int j_off = 0; j_off <= S_2; j_off++) {
-                    dist_row[j_off] = patch_row[j_off];
-                }
+                _mm256_storeu_si256((__m256i *)&min_dists[i], new_min_dists);
+                _mm256_storeu_si256((__m256i *)&min_neighbor_indices[i], new_neighbor_vec);
+            }
+            /*
+            for (int i = 0; i < tile_memory_size; i++) {
+                dists[i] = fast_abs(r_plane[i] - cluster_r) + fast_abs(g_plane[i] - cluster_g) + fast_abs(b_plane[i] - cluster_b);
+            }
 
-                for (int j_off = 0; j_off <= S_2; j_off++) {
-                    DistType r = image_row[4 * j_off],
-                        g = image_row[4 * j_off + 1],
-                        b = image_row[4 * j_off + 2];
-                    DistType dr = udiff(r, cluster_r), dg = udiff(g, cluster_g), db = udiff(b, cluster_b);
-                    dist_row[j_off] = uadds(dist_row[j_off], dr);
-                    dist_row[j_off] = uadds(dist_row[j_off], dg);
-                    dist_row[j_off] = uadds(dist_row[j_off], db);
-                }
-
-                for (int j_off = 0; j_off <= S_2; j_off++) {
-                    if (min_dist_row[j_off] > dist_row[j_off]) {
-                        min_dist_row[j_off] = dist_row[j_off];
-                        assignment_row[j_off] = cluster_no;
-                    }
+            for (int i = 0; i < tile_memory_size; i++) {
+                if (min_dists[i] > dists[i]) {
+                    min_dists[i] = dists[i];
+                    min_neighbor_indices[i] = nid;
                 }
             }
+             */
         }
-        delete [] dist_row;
     }
 
 
     template<typename DistType>
     void BaseContext<DistType>::update() {
-        preemptive_grid.set_old_clusters(clusters);
+        std::vector<int> acc_pool_(fsparallel::nth() * K * 6, 0);
+        std::vector<int> cluster_acc_vec_(K * 6, 0);
+        int *__restrict acc_pool = &acc_pool_[0];
+        int *__restrict cluster_acc_vec = &cluster_acc_vec_[0];
 
-        std::vector<int32_t> num_cluster_members(K, 0);
-        std::vector<int32_t> cluster_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
-        std::vector<PreemptiveTile> active_tiles = preemptive_grid.get_active_tiles();
+        int T = tile_set.get_num_tiles();
 
-        #pragma omp parallel num_threads(fsparallel::nth())
+        const int num_threads = fsparallel::nth();
+
+        std::vector<int> f(100);
+
+        #pragma omp parallel num_threads(num_threads)
         {
-            std::vector<uint32_t> local_acc_vec(K * 5, 0); // sum of [y, x, r, g, b] in cluster
-            std::vector<uint32_t> local_num_cluster_members(K, 0);
+            int *__restrict local_acc_vec = &acc_pool[fsparallel::thindex() * K * 6];
+
             // if a cell is active, it is updatable (but not vice versa).
-            if (preemptive_grid.all_active()) {
-                #pragma omp for
-                for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
-                    for (int j = 0; j < W; j++) {
-                        uint16_t cluster_no = assignment.get(i, j);
-                        if (cluster_no == 0xFFFF) continue;
-                        local_num_cluster_members[cluster_no]++;
-                        local_acc_vec[5 * cluster_no + 0] += i;
-                        local_acc_vec[5 * cluster_no + 1] += j;
-                        local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
-                        local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
-                        local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+            #pragma omp for
+            for (int tile_no = 0; tile_no < T; tile_no++) {
+                auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
+                int neighbor_size = neighbors.size();
+                if (neighbor_size <= 0) continue;
+                const Tile &tile = tile_set.get_tile(tile_no);
+                int tile_memory_width = tile_set.get_tile_memory_width();
+                int tile_memory_size = tile_set.get_tile_memory_size();
+
+                const uint8_t* min_neighbor_indices = tile_set.get_tile_min_neighbor_indices(tile_no);
+                const uint8_t *r_plane = tile_set.get_color_plane(tile_no, 0);
+                const uint8_t *g_plane = tile_set.get_color_plane(tile_no, 1);
+                const uint8_t *b_plane = tile_set.get_color_plane(tile_no, 2);
+
+                std::fill(f.begin(), f.end(), 0);
+                for (int y = tile.sy, tile_i_st = 0; y < tile.ey; y++, tile_i_st += tile_memory_width) {
+                    for (int x = tile.sx, tile_i = tile_i_st; x < tile.ex; x++, tile_i++) {
+                        int neighbor_index = min_neighbor_indices[tile_i];
+                        f[6 * neighbor_index + 0]++;
+                        f[6 * neighbor_index + 1] += y;
+                        f[6 * neighbor_index + 2] += x;
+                        f[6 * neighbor_index + 3] += r_plane[tile_i];
+                        f[6 * neighbor_index + 4] += g_plane[tile_i];
+                        f[6 * neighbor_index + 5] += b_plane[tile_i];
                     }
                 }
-            } else {
-                #pragma omp for schedule(static, 1)
-                for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
-                    for (int j = 0; j < W; j++) {
-                        if (!preemptive_grid.get_active_cell(i, j)) continue;
-                        uint16_t cluster_no = assignment.get(i, j);
-                        if (cluster_no == 0xFFFF) continue;
-                        local_num_cluster_members[cluster_no]++;
-                        local_acc_vec[5 * cluster_no + 0] += i;
-                        local_acc_vec[5 * cluster_no + 1] += j;
-                        local_acc_vec[5 * cluster_no + 2] += quad_image.get(i, 4*j);
-                        local_acc_vec[5 * cluster_no + 3] += quad_image.get(i, 4*j + 1);
-                        local_acc_vec[5 * cluster_no + 4] += quad_image.get(i, 4*j + 2);
+
+                for (int i = 0; i < neighbor_size; i++) {
+                    uint16_t cluster_no = neighbors[i];
+                    for (int j = 0; j < 6; j++) {
+                        local_acc_vec[6 * cluster_no + j] += f[6 * i + j];
                     }
                 }
             }
 
-            #pragma omp critical
-            {
-                for (int i = 0; i < (int)local_acc_vec.size(); i++) {
-                    cluster_acc_vec[i] += local_acc_vec[i];
-                }
-                for (int k = 0; k < K; k++) {
-                    num_cluster_members[k] += local_num_cluster_members[k];
+            #pragma omp for
+            for (int i = 0; i < 6 * K; i++) {
+                for (int n = 0; n < num_threads; n++) {
+                    cluster_acc_vec[i] += acc_pool[n * (6 * K) + i];
                 }
             }
-        }
 
-
-        bool centroid_qt = centroid_quantization_enabled();
-        for (int k = 0; k < K; k++) {
-            Cluster *cluster = &clusters[k];
-            if (!cluster->is_updatable) continue;
-            int32_t num_current_members = num_cluster_members[k];
-            cluster->num_members = num_current_members;
-
-            if (num_current_members == 0) continue;
-
-            // Technically speaking, as for L1 norm, you need median instead of mean for correct maximization.
-            // But, I intentionally used mean here for the sake of performance.
-            if (centroid_qt) {
-                cluster->y = round_int(cluster_acc_vec[5 * k + 0], num_current_members);
-                cluster->x = round_int(cluster_acc_vec[5 * k + 1], num_current_members);
-                cluster->r = round_int(cluster_acc_vec[5 * k + 2], num_current_members);
-                cluster->g = round_int(cluster_acc_vec[5 * k + 3], num_current_members);
-                cluster->b = round_int(cluster_acc_vec[5 * k + 4], num_current_members);
-            } else {
-                cluster->y = (float)cluster_acc_vec[5 * k + 0] / num_current_members;
-                cluster->x = (float)cluster_acc_vec[5 * k + 1] / num_current_members;
-                cluster->r = (float)cluster_acc_vec[5 * k + 2] / num_current_members;
-                cluster->g = (float)cluster_acc_vec[5 * k + 3] / num_current_members;
-                cluster->b = (float)cluster_acc_vec[5 * k + 4] / num_current_members;
+            #pragma omp for
+            for (int k = 0; k < K; k++) {
+                Cluster *cluster = &clusters[k];
+                if (!cluster->is_updatable) continue;
+                int num_current_members = cluster_acc_vec[6 * k];
+                cluster->num_members = num_current_members;
+                if (num_current_members == 0) continue;
+                cluster->y = round_int(cluster_acc_vec[6 * k + 1], num_current_members);
+                cluster->x = round_int(cluster_acc_vec[6 * k + 2], num_current_members);
+                cluster->r = round_int(cluster_acc_vec[6 * k + 3], num_current_members);
+                cluster->g = round_int(cluster_acc_vec[6 * k + 4], num_current_members);
+                cluster->b = round_int(cluster_acc_vec[6 * k + 5], num_current_members);
             }
         }
 
@@ -392,113 +372,6 @@ namespace fslic {
     template<typename DistType>
     bool BaseContext<DistType>::centroid_quantization_enabled() {
         return true;
-    }
-
-    void ContextRealDistL2::assign_clusters(const Cluster** target_clusters, int size) {
-        float* dist_row = new float[2 * S + 1];
-
-        const int16_t S_2 = 2 * S;
-
-        for (int cidx = 0; cidx < size; cidx++) {
-            const Cluster* cluster = target_clusters[cidx];
-            int16_t cluster_y = cluster->y, cluster_x = cluster->x;
-            int16_t cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
-            uint16_t cluster_no = cluster->number;
-
-            for (int16_t i_off = 0, i = cluster_y - S; i_off <= S_2; i_off++, i++) {
-                if (!valid_subsample_row(i)) continue;
-                const uint8_t* __restrict image_row = quad_image.get_row(i, 4 * (cluster_x - S));
-                uint16_t* __restrict assignment_row = assignment.get_row(i, cluster_x - S);
-                float* __restrict  min_dist_row = min_dists.get_row(i, cluster_x - S);
-                const float* __restrict patch_row = spatial_dist_patch.get_row(i_off);
-
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    dist_row[j_off] = patch_row[j_off];
-                }
-
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    float dr = image_row[4 * j_off] - cluster_r,
-                        dg = image_row[4 * j_off + 1] - cluster_g,
-                        db = image_row[4 * j_off + 2] - cluster_b;
-                    float color_dist = dr*dr + dg*dg + db*db;
-                    dist_row[j_off] += color_dist;
-                }
-
-                for (int16_t j_off = 0; j_off <= S_2; j_off++) {
-                    if (min_dist_row[j_off] > dist_row[j_off]) {
-                        min_dist_row[j_off] = dist_row[j_off];
-                        assignment_row[j_off] = cluster_no;
-                    }
-                }
-            }
-        }
-        delete [] dist_row;
-    }
-
-    void ContextRealDistL2::set_spatial_patch() {
-        float coef = 1.0f / ((float)S / compactness);
-        coef *= (1 << color_shift);
-        int16_t S_2 = 2 * S;
-        for (int16_t i = 0; i <= S_2; i++) {
-            for (int16_t j = 0; j <= S_2; j++) {
-                float di = coef * (i - S), dj = coef * (j - S);
-                spatial_dist_patch.get(i, j) = di * di + dj * dj;
-            }
-        }
-    }
-
-    void ContextRealDistNoQ::before_iteration() {
-    }
-
-    bool ContextRealDistNoQ::centroid_quantization_enabled() {
-        return false;
-    }
-
-    void ContextRealDistNoQ::assign_clusters(const Cluster** target_clusters, int size) {
-        if (manhattan_spatial_dist) {
-            assign_clusters_proto<true>(target_clusters, size);
-        } else {
-            assign_clusters_proto<false>(target_clusters, size);
-        }
-    }
-
-    template<bool use_manhattan>
-    void ContextRealDistNoQ::assign_clusters_proto(const Cluster** target_clusters, int size) {
-        float coef = 1.0f / ((float)S / compactness);
-        coef *= (1 << color_shift);
-
-        for (int cidx = 0; cidx < size; cidx++) {
-            const Cluster* cluster = target_clusters[cidx];
-            float cluster_y = cluster->y, cluster_x = cluster->x;
-            float cluster_r = cluster->r, cluster_g = cluster->g, cluster_b = cluster->b;
-            int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S + 1, H);
-            int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S + 1, W);
-
-            uint16_t cluster_no = cluster->number;
-            for (int i = y_lo; i < y_hi; i++) {
-                if (!valid_subsample_row(i)) continue;
-
-                uint16_t* __restrict assignment_row = assignment.get_row(i);
-                float* __restrict min_dist_row = min_dists.get_row(i);
-                for (int j = x_lo; j < x_hi; j++) {
-                    float dr = quad_image.get(i, 4 * j) - cluster_r;
-                    float dg = quad_image.get(i, 4 * j + 1) - cluster_g;
-                    float db = quad_image.get(i, 4 * j + 2) - cluster_b;
-                    float dy = coef * (i - cluster_y), dx = coef * (j - cluster_x);
-
-                    float distance;
-                    if (use_manhattan) {
-                        distance = std::fabs(dr) + std::fabs(dg) + std::fabs(db) + std::fabs(dx) + std::fabs(dy);
-                    } else {
-                        distance = dr*dr + dg*dg + db*db + dx*dx + dy*dy;
-                    }
-                    if (min_dist_row[j] > distance) {
-                        min_dist_row[j] = distance;
-                        assignment_row[j] = cluster_no;
-                    }
-                }
-            }
-        }
     }
 
     template class BaseContext<float>;

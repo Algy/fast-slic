@@ -4,6 +4,7 @@
 namespace fsparallel {
     bool parallelism_supported();
     int nth();
+    int thindex();
     class Scope {
     private:
         int old_val;

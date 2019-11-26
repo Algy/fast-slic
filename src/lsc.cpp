@@ -53,12 +53,11 @@ namespace fslic {
             fstimer::Scope s("image_copy");
             #pragma omp parallel for num_threads(fsparallel::nth())
             for (int i = 0; i < H; i++) {
-                const uint8_t* image_row = quad_image.get_row(i);
                 for (int j = 0; j < W; j++) {
                     int index = i * W + j;
-                    image_planes[0][index] = image_row[4 * j];
-                    image_planes[1][index] = image_row[4 * j + 1];
-                    image_planes[2][index] = image_row[4 * j + 2];
+                    image_planes[0][index] = image[3 * index];
+                    image_planes[1][index] = image[3 * index + 1];
+                    image_planes[2][index] = image[3 * index + 2];
                 }
             }
         }
@@ -194,116 +193,7 @@ namespace fslic {
         delete [] wsums;
     }
 
-    void ContextLSC::assign_clusters(const Cluster** target_clusters, int size) {
-        for (int cidx = 0; cidx < size; cidx++) {
-            const Cluster* cluster = target_clusters[cidx];
-            int cluster_y = cluster->y, cluster_x = cluster->x;
-            uint16_t cluster_no = cluster->number;
-
-            int y_lo = my_max<int>(cluster_y - S, 0), y_hi = my_min<int>(cluster_y + S + 1, H);
-            int x_lo = my_max<int>(cluster_x - S, 0), x_hi = my_min<int>(cluster_x + S + 1, W);
-
-            for (int i = y_lo; i < y_hi; i++) {
-                if (!valid_subsample_row(i)) continue;
-                for (int j = x_lo; j < x_hi; j++) {
-                    float &min_dist = min_dists.get(i, j);
-                    uint16_t &label = assignment.get(i, j);
-                    int index = W * i + j;
-                    float dist = 0;
-                    for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                        float diff = image_features[ix_feat][index] - centroid_features[ix_feat][cluster_no];
-                        dist += diff * diff;
-                    }
-                    if (min_dist > dist) {
-                        min_dist = dist;
-                        label = cluster_no;
-                    }
-                }
-            }
-        }
-    }
-
     void ContextLSC::after_update() {
-        float* __restrict wsums = new float[K];
-
-        std::vector<PreemptiveTile> active_tiles = preemptive_grid.get_active_tiles();
-        std::vector<bool> cluster_updatable(K);
-        for (int k = 0; k < K; k++) {
-            cluster_updatable[k] = clusters[k].is_updatable;
-        }
-        for (int k = 0; k < K; k++) {
-            if (!cluster_updatable[k]) continue;
-            for (int i = 0; i < 10; i++) {
-                 centroid_features[i][k] = 0.0f;
-            }
-        }
-
-        for (int k = 0; k < K; k++) {
-            wsums[k] = cluster_updatable[k]? 0.0f : 1.0f;
-        }
-
-        #pragma omp parallel num_threads(fsparallel::nth())
-        {
-            float* __restrict local_feats[10];
-            float* __restrict local_wsums = new float[K];
-            std::fill_n(local_wsums, K, 0);
-
-            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                local_feats[ix_feat] = new float[K];
-                std::fill_n(local_feats[ix_feat], K, 0);
-            }
-
-            if (preemptive_grid.all_active()) {
-                #pragma omp for
-                for (int i = fit_to_stride(0); i < H; i += subsample_stride) {
-                    for (int j = 0; j < W; j++) {
-                        uint16_t cluster_no = assignment.get(i, j);
-                        if (cluster_no == 0xFFFF) continue;
-                        int index = W * i + j;
-                        float w = image_weights[index];
-                        for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                            local_feats[ix_feat][cluster_no] += w * image_features[ix_feat][index];
-                        }
-                        local_wsums[cluster_no] += w;
-                    }
-                }
-            } else {
-                #pragma omp for
-                for (int tile_ix = 0; tile_ix < (int)active_tiles.size(); tile_ix++) {
-                    PreemptiveTile &tile = active_tiles[tile_ix];
-                    for (int i = fit_to_stride(tile.sy); i < tile.ey; i += subsample_stride) {
-                        for (int j = tile.sx; j < tile.ex; j++) {
-                            uint16_t cluster_no = assignment.get(i, j);
-                            if (cluster_no == 0xFFFF || !cluster_updatable[cluster_no]) continue;
-                            int index = W * i + j;
-                            float w = image_weights[index];
-                            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                                local_feats[ix_feat][cluster_no] += w * image_features[ix_feat][index];
-                            }
-                            local_wsums[cluster_no] += w;
-                        }
-                    }
-                }
-            }
-
-            #pragma omp critical
-            {
-                for (int k = 0; k < K; k++) {
-                    for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                        centroid_features[ix_feat][k] += local_feats[ix_feat][k];
-                    }
-                    wsums[k] += local_wsums[k];
-                }
-            }
-
-            for (int ix_feat = 0; ix_feat < 10; ix_feat++) {
-                delete [] local_feats[ix_feat];
-            }
-            delete [] local_wsums;
-        }
-
-        normalize_features(centroid_features, wsums, K);
-        delete [] wsums;
     }
 
 	void ContextLSC::normalize_features(float *__restrict numers[10], float* __restrict weights, int size) {

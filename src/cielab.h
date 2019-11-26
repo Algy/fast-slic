@@ -333,66 +333,6 @@ private:
 };
 
 static FastCIELabCvt fast_cielab_cvt;
+static int get_cielab_shift() { return output_shift; }
 
-static void rgb_to_cielab(const uint8_t* image, int H, int W, simd_helper::AlignedArray<uint8_t> &arr, int &shift_out) {
-    #pragma omp parallel for num_threads(fsparallel::nth())
-    for (int i = 0; i < H; i++) {
-        for (int j = 0; j < W; j++) {
-            int index = W * i + j;
-            fast_cielab_cvt.convert(
-                image[3 * index],
-                image[3 * index + 1],
-                image[3 * index + 2],
-                arr.get(i, 4 * j),
-                arr.get(i, 4 * j + 1),
-                arr.get(i, 4 * j + 2)
-            );
-        }
-    }
-    shift_out = output_shift;
-}
-
-static void rgb_to_cielab_orig(const uint8_t* image, float *out, int size) {
-    #pragma omp parallel for num_threads(fsparallel::nth())
-    for (int s = 0; s < size; s += 3) {
-        float r = _srgb_gamma_tbl[image[s]],
-            g = _srgb_gamma_tbl[image[s+1]],
-            b = _srgb_gamma_tbl[image[s+2]];
-        /*
-        X = r*0.4124530 + g*0.3575761 + b*0.1804375;
-        Y = r*0.2126729 + g*0.7151522 + b*0.0721750;
-        Z = r*0.0193339 + g*0.1191920 + b*0.9503041;
-
-        // actual CIE standard
-        xr = X / 0.950456
-        yr = Y / 1.0
-        Zr = Z / 1.088754
-
-        =>
-        [[0.43395633, 0.37621531, 0.18984309],
-         [0.2126729 , 0.7151522 , 0.072175  ],
-         [0.01775782, 0.1094756 , 0.87283638]])
-        */
-
-        float xr = 0.43395633f * r + 0.37621531f * g + 0.18984309f * b;
-        float yr = 0.2126729f  * r + 0.7151522f  * g + 0.072175f * b;
-        float zr = 0.01775782f * r + 0.1094756f  * g + 0.87283638f * b;
-        float fx_lo = 7.787f * xr + 0.137931f;
-        float fy_lo = 7.787f * yr + 0.137931f;
-        float fz_lo = 7.787f * zr + 0.137931f;
-        float fx_hi = powf(xr, 0.333333f);
-        float fy_hi = powf(yr, 0.333333f);
-        float fz_hi = powf(zr, 0.333333f);
-        float fx = (xr > 0.008856f)? fx_hi : fx_lo;
-        float fy = (yr > 0.008856f)? fy_hi : fy_lo;
-        float fz = (zr > 0.008856f)? fz_hi : fz_lo;
-
-        float ciel = 116.0f * fy - 16.0f;
-        float ciea = 500.0f * (fx - fy) + 128.0f; // to positive integer
-        float cieb = 200.0f * (fy - fz) + 128.0f; // to positive integer
-        out[s] = ciel;
-        out[s+1] = ciea;
-        out[s+2] = cieb;
-    }
-}
 #endif

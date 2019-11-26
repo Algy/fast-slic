@@ -141,7 +141,7 @@ if platform.system() != 'Windows':
         extra_link_args.append('-lgomp')
 
     if _check_avx2():
-        extra_compile_args.append("-DUSE_AVX2")
+        #extra_compile_args.append("-DUSE_AVX2")
         extra_compile_args.append("-mavx2")
         extra_compile_args.append("-mfma")
     if platform.machine().lower().startswith("arm") and _check_neon():

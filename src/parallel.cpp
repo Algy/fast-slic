@@ -7,6 +7,7 @@
 #else
 #define PARALLELISM_SUPPORTED false
 #define omp_get_max_threads() 1
+#define omp_get_thread_num() 0
 #endif
 #include "parallel.h"
 
@@ -50,6 +51,10 @@ namespace fsparallel {
         } else {
             return num_threads;
         }
+    }
+
+    int thindex() {
+        return omp_get_thread_num();
     }
 
     Scope::Scope(int n) {
