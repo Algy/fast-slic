@@ -17,6 +17,16 @@ static inline __m256i _mm256_abd_epu8(__m256i a, __m256i b) {
 
 namespace fslic {
     template<typename DistType>
+    BaseContext<DistType>::BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters)
+            : H(H), W(W), K(K), image(H * W * 3), clusters(clusters), S(sqrt(H * W / K)),
+              orig_image(image),
+              tile_set(H, W, S),
+              dist_patch(S),
+              preemptive_grid(H, W, K, S),
+              recorder(H, W, K) {
+
+    };
+    template<typename DistType>
     BaseContext<DistType>::~BaseContext() {
     }
 
@@ -26,26 +36,6 @@ namespace fslic {
         if (K <= 0 || H <= 0 || W <= 0) return;
         cca::ConnectivityEnforcer ce(assignment, H, W, K, thres);
         ce.execute(assignment);
-    }
-
-    template<typename DistType>
-    void BaseContext<DistType>::set_spatial_patch() {
-        float coef = 1.0f / ((float)S / compactness);
-        coef *= (1 << color_shift);
-        int16_t S_2 = 2 * S;
-        if (manhattan_spatial_dist) {
-            for (int16_t i = 0; i <= S_2; i++) {
-                for (int16_t j = 0; j <= S_2; j++) {
-                    spatial_dist_patch.get(i, j) = (DistType)(coef * (fast_abs(i - S) + fast_abs(j - S)));
-                }
-            }
-        } else {
-            for (int16_t i = 0; i <= S_2; i++) {
-                for (int16_t j = 0; j <= S_2; j++) {
-                    spatial_dist_patch.get(i, j) = (DistType)(coef * hypotf(i - S, j - S));
-                }
-            }
-        }
     }
 
     template<typename DistType>
@@ -149,15 +139,12 @@ namespace fslic {
             }
 
             {
-                fstimer::Scope s("tile_creation");
+                fstimer::Scope s("write_to_buffer");
                 tile_set.set_clusters(clusters, K);
                 tile_set.set_image(&image[0]);
                 tile_set.initialize_dists();
-            }
 
-            {
-                fstimer::Scope s("write_to_buffer");
-                set_spatial_patch();
+                dist_patch.set(compactness);
             }
 
             subsample_rem = 0;
@@ -246,8 +233,17 @@ namespace fslic {
         int neighbor_size = neighbors.size();
         int tile_memory_size = tile_set.get_tile_memory_size();
 
+        const auto &tile = tile_set.get_tile(tile_no);
+
         for (int nid = 0; nid < neighbor_size; nid++) {
-            const Cluster* cluster = &clusters[neighbors[nid]];
+            uint16_t cluster_no = neighbors[nid];
+            const Cluster* cluster = &clusters[cluster_no];
+
+            int dy = (int)cluster->y - tile.sy, dx = (int)cluster->x - tile.sx;
+            if (!(dist_patch.in_range(dy) && dist_patch.in_range(dx))) continue;
+            DistType* __restrict spatial_dist_y = dist_patch.at_y(dy);
+            DistType* __restrict spatial_dist_x = dist_patch.at_x(dx);
+
             __m256i cluster_r = _mm256_set1_epi8((uint8_t)cluster->r);
             __m256i cluster_g = _mm256_set1_epi8((uint8_t)cluster->g);
             __m256i cluster_b = _mm256_set1_epi8((uint8_t)cluster->b);
@@ -262,7 +258,12 @@ namespace fslic {
                 __m256i dist_r = _mm256_abd_epu8(r_vec, cluster_r);
                 __m256i dist_g = _mm256_abd_epu8(g_vec, cluster_g);
                 __m256i dist_b = _mm256_abd_epu8(b_vec, cluster_b);
-                __m256i dist = _mm256_adds_epu8(_mm256_adds_epu8(dist_r, dist_g), dist_b);
+                __m256i dist_color = _mm256_adds_epu8(_mm256_adds_epu8(dist_r, dist_g), dist_b);
+                __m256i dist_spatial = _mm256_max_epu8(
+                    _mm256_loadu_si256((__m256i *)&spatial_dist_x[i]),
+                    _mm256_loadu_si256((__m256i *)&spatial_dist_y[i])
+                );
+                __m256i dist = _mm256_adds_epu8(dist_color, dist_spatial);
                 __m256i new_min_dists = _mm256_min_epu8(old_min_dists, dist);
                 // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
                 __m256i mask = _mm256_cmpeq_epi8(old_min_dists, new_min_dists);
@@ -272,18 +273,6 @@ namespace fslic {
                 _mm256_storeu_si256((__m256i *)&min_dists[i], new_min_dists);
                 _mm256_storeu_si256((__m256i *)&min_neighbor_indices[i], new_neighbor_vec);
             }
-            /*
-            for (int i = 0; i < tile_memory_size; i++) {
-                dists[i] = fast_abs(r_plane[i] - cluster_r) + fast_abs(g_plane[i] - cluster_g) + fast_abs(b_plane[i] - cluster_b);
-            }
-
-            for (int i = 0; i < tile_memory_size; i++) {
-                if (min_dists[i] > dists[i]) {
-                    min_dists[i] = dists[i];
-                    min_neighbor_indices[i] = nid;
-                }
-            }
-             */
         }
     }
 
@@ -299,13 +288,10 @@ namespace fslic {
 
         const int num_threads = fsparallel::nth();
 
-        std::vector<int> f(100);
 
         #pragma omp parallel num_threads(num_threads)
         {
             int *__restrict local_acc_vec = &acc_pool[fsparallel::thindex() * K * 6];
-
-            // if a cell is active, it is updatable (but not vice versa).
             #pragma omp for
             for (int tile_no = 0; tile_no < T; tile_no++) {
                 auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
@@ -320,23 +306,17 @@ namespace fslic {
                 const uint8_t *g_plane = tile_set.get_color_plane(tile_no, 1);
                 const uint8_t *b_plane = tile_set.get_color_plane(tile_no, 2);
 
-                std::fill(f.begin(), f.end(), 0);
                 for (int y = tile.sy, tile_i_st = 0; y < tile.ey; y++, tile_i_st += tile_memory_width) {
                     for (int x = tile.sx, tile_i = tile_i_st; x < tile.ex; x++, tile_i++) {
                         int neighbor_index = min_neighbor_indices[tile_i];
-                        f[6 * neighbor_index + 0]++;
-                        f[6 * neighbor_index + 1] += y;
-                        f[6 * neighbor_index + 2] += x;
-                        f[6 * neighbor_index + 3] += r_plane[tile_i];
-                        f[6 * neighbor_index + 4] += g_plane[tile_i];
-                        f[6 * neighbor_index + 5] += b_plane[tile_i];
-                    }
-                }
-
-                for (int i = 0; i < neighbor_size; i++) {
-                    uint16_t cluster_no = neighbors[i];
-                    for (int j = 0; j < 6; j++) {
-                        local_acc_vec[6 * cluster_no + j] += f[6 * i + j];
+                        if (neighbor_index == 0xFF) continue;
+                        int cluster_no = neighbors[neighbor_index];
+                        local_acc_vec[6 * cluster_no + 0]++;
+                        local_acc_vec[6 * cluster_no + 1] += y;
+                        local_acc_vec[6 * cluster_no + 2] += x;
+                        local_acc_vec[6 * cluster_no + 3] += r_plane[tile_i];
+                        local_acc_vec[6 * cluster_no + 4] += g_plane[tile_i];
+                        local_acc_vec[6 * cluster_no + 5] += b_plane[tile_i];
                     }
                 }
             }

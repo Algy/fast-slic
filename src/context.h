@@ -42,7 +42,8 @@ namespace fslic {
         const uint8_t* orig_image;
         Cluster* clusters;
         int16_t S;
-        TileSet<DistType> tile_set;
+        TileSet<DistType, 8> tile_set;
+        SpatialDistancePatch<DistType, 8> dist_patch;
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
@@ -50,19 +51,12 @@ namespace fslic {
     protected:
         int color_shift;
     protected:
-        simd_helper::AlignedArray<DistType> spatial_dist_patch;
         PreemptiveGrid preemptive_grid;
         Recorder<DistType> recorder;
     public:
         std::string last_timing_report;
     public:
-        BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters)
-            : H(H), W(W), K(K), image(H * W * 3), clusters(clusters), S(sqrt(H * W / K)),
-              orig_image(image),
-              tile_set(H, W, S),
-              spatial_dist_patch(2 * S + 1, 2 * S + 1),
-              preemptive_grid(H, W, K, S),
-              recorder(H, W, K) {};
+        BaseContext(int H, int W, int K, const uint8_t* image, Cluster *clusters);
         virtual ~BaseContext();
     public:
         void initialize_clusters();
@@ -73,7 +67,6 @@ namespace fslic {
         std::string get_timing_report() { return last_timing_report; };
         std::string get_recorder_report() { return recorder.get_report(); };
     private:
-        void prepare_spatial();
         void assign();
         void update();
     protected:
@@ -91,7 +84,6 @@ namespace fslic {
     protected:
         virtual void before_iteration() {};
         virtual void after_update() {};
-        virtual void set_spatial_patch();
         virtual void assign_clusters(int tile_no);
         virtual bool centroid_quantization_enabled();
     };
