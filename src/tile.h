@@ -117,6 +117,7 @@ public:
     uint8_t* get_b_plane(int tile_no) { return &b_plane[tile_no * get_tile_memory_size()]; };
 
     void set_clusters(const Cluster* clusters, int K) {
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int k = 0; k < K; k++) {
             const int cy = clusters[k].y, cx = clusters[k].x;
             const int sty = my_max(cy - S, 0) / TileHeight, ety = my_min(cy + S, H - 1) / TileHeight;
@@ -132,6 +133,8 @@ public:
 
     void set_image(const uint8_t* image) {
         int memory_width = get_tile_memory_width();
+
+        #pragma omp parallel for num_threads(fsparallel::nth())
         for (int tile_no = 0; tile_no < num_tiles; tile_no++) {
             const Tile &tile = tiles[tile_no];
             uint8_t* rs = get_r_plane(tile_no), *gs = get_g_plane(tile_no), *bs = get_b_plane(tile_no);
