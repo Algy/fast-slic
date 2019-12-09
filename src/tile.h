@@ -39,75 +39,65 @@ struct Tile {
     int height() const { return ey - sy; };
 };
 
-template <typename DistType, int TileWidth>
+template <typename DistType, int TileWidth = 32, int TileHeight = 1>
 class SpatialDistancePatch {
 private:
     int S;
     int width;
-    std::vector<DistType> data_y;
-    std::vector<DistType> data_x;
+    simd_helper::AlignedArray<DistType> data;
 public:
-    SpatialDistancePatch(int S) :
-            S(S),
-            width((2 * S + TileWidth) * TileWidth * TileWidth),
-            data_y(simd_helper::align_to_next(width)),
-            data_x(simd_helper::align_to_next(width)) {};
-    void set(float compactness) {
-        float coef = (compactness / S) * 1.41f;
+    SpatialDistancePatch(int S) : S(S), data(2 * (S + TileHeight) + 1, 2 * (S + TileWidth)  + 1) {};
+    void set(float compactness, int color_shift) {
+        float coef = compactness / S;
+        coef *= (1 << color_shift);
 
-        for (int n = -S; n < S + TileWidth; n++) {
-            DistType* __restrict y_arr = at_y(n);
-            DistType* __restrict x_arr = at_x(n);
+        for (int i = 0; i < data.get_height(); i++) {
+            for (int j = 0; j < data.get_width(); j++) {
+                data.get(i, j) = std::numeric_limits<DistType>::max();
+            }
+        }
 
-            for (int i = 0; i < TileWidth; i++) {
-                DistType y_val = (DistType)(coef * fast_abs(i - n));
-                for (int j = 0; j < TileWidth; j++) {
-                    y_arr[i * TileWidth + j] = y_val;
-                    x_arr[i * TileWidth + j] = (DistType)(coef * fast_abs(j - n));
-                }
+        for (int i = -S; i <= S; i++) {
+            for (int j = -S; j <= S; j++) {
+                data.get(i + get_center_y(), j + get_center_x()) = (DistType)(coef * (fast_abs(i) + fast_abs(j)));
             }
         }
     }
-
-    DistType* __restrict at_y(int offset) {
-        return (DistType * __restrict) &data_y[(TileWidth * TileWidth) * (offset + S)];
+    const DistType* at(int cy, int cx) const {
+        return &data.get(cy + get_center_y(), cx + get_center_x());
     }
 
-    DistType* __restrict at_x(int offset) {
-        offset = clamp(offset, -S, S + TileWidth - 1);
-        return (DistType * __restrict) &data_x[(TileWidth * TileWidth) * (offset + S)];
-    }
-    bool in_range(int offset) {
-        return offset >= -S && offset < S + TileWidth;
-    }
+    bool y_in_range(int y) { return y >= -S && y <= S; };
+    bool x_in_range(int x) { return x >= -(S + TileWidth - 1) && x <= S; };
+private:
+    int get_center_y() const { return TileHeight + S; };
+    int get_center_x() const { return TileWidth + S; };
 };
 
 
-template <typename DistType, int TileWidth = 8>
+template <typename DistType, int TileWidth = 32, int TileHeight = 1>
 class TileSet {
 private:
     int H, W, S, num_rows, num_cols;
-    int num_tiles, tile_size, tile_memory_size;
+    int num_tiles;
+    int plane_memory_size;
     std::vector<LimitedSlots<uint16_t, 16>> neighbor_cluster_nos;
     std::vector<Tile> tiles;
-
-    std::vector<uint8_t> tile_color[3];
+    std::vector<uint8_t> r_plane, g_plane, b_plane;
     std::vector<DistType> tile_min_dists;
     std::vector<uint8_t> tile_min_neighbor_indices;
 public:
     TileSet(int H, int W, int S) : H(H), W(W), S(S),
-            num_rows(ceil_int(H, TileWidth)), num_cols(ceil_int(W, TileWidth)),
-            num_tiles(num_rows*num_cols), tile_size(TileWidth*TileWidth), tile_memory_size(simd_helper::align_to_next(tile_size)),
-            neighbor_cluster_nos(num_tiles), tiles(num_tiles) {
-        tile_min_dists.resize(num_tiles*tile_memory_size, std::numeric_limits<DistType>::max());
-        tile_min_neighbor_indices.resize(num_tiles*tile_memory_size, 0xFF);
-        for (int i = 0; i < 3; i++) {
-            tile_color[i].resize(num_tiles*tile_memory_size);
-        }
-
+            num_rows(ceil_int(H, TileHeight)), num_cols(ceil_int(W, TileWidth)),
+            num_tiles(num_rows*num_cols),
+            plane_memory_size(get_tile_memory_size() * num_tiles),
+            neighbor_cluster_nos(num_tiles), tiles(num_tiles),
+            r_plane(plane_memory_size), g_plane(plane_memory_size), b_plane(plane_memory_size),
+            tile_min_dists(plane_memory_size, std::numeric_limits<DistType>::max()),
+            tile_min_neighbor_indices(plane_memory_size, 0xFF) {
         for (int ty = 0; ty < num_rows; ty++) {
-            int sy = ty * TileWidth;
-            int ey = my_min(H, sy + TileWidth);
+            int sy = ty * TileHeight;
+            int ey = my_min(H, sy + TileHeight);
             for (int tx = 0; tx < num_cols; tx++) {
                 int sx = tx * TileWidth;
                 int ex = my_min(W, sx + TileWidth);
@@ -119,18 +109,17 @@ public:
             }
         }
     }
-    int get_num_tiles() const { return num_tiles; };
-    int get_tile_memory_size() const { return tile_memory_size; };
+    inline int get_tile_memory_size() const { return TileWidth*TileHeight; };
+    inline int get_tile_no(int row, int col) const { return row * num_cols + col; };
 
-
-    const uint8_t* get_color_plane(int tile_no, int plane_no) const {
-        return &tile_color[plane_no][tile_memory_size * tile_no];
-    }
+    uint8_t* get_r_plane(int tile_no) { return &r_plane[tile_no * get_tile_memory_size()]; };
+    uint8_t* get_g_plane(int tile_no) { return &g_plane[tile_no * get_tile_memory_size()]; };
+    uint8_t* get_b_plane(int tile_no) { return &b_plane[tile_no * get_tile_memory_size()]; };
 
     void set_clusters(const Cluster* clusters, int K) {
         for (int k = 0; k < K; k++) {
             const int cy = clusters[k].y, cx = clusters[k].x;
-            const int sty = my_max(cy - S, 0) / TileWidth, ety = my_min(cy + S, H - 1) / TileWidth;
+            const int sty = my_max(cy - S, 0) / TileHeight, ety = my_min(cy + S, H - 1) / TileHeight;
             const int stx = my_max(cx - S, 0) / TileWidth, etx = my_min(cx + S, W - 1) / TileWidth;
 
             for (int ty = sty; ty <= ety; ty++) {
@@ -145,30 +134,20 @@ public:
         int memory_width = get_tile_memory_width();
         for (int tile_no = 0; tile_no < num_tiles; tile_no++) {
             const Tile &tile = tiles[tile_no];
-            uint8_t *r_plane = &tile_color[0][tile_memory_size * tile_no];
-            uint8_t *g_plane = &tile_color[1][tile_memory_size * tile_no];
-            uint8_t *b_plane = &tile_color[2][tile_memory_size * tile_no];
+            uint8_t* rs = get_r_plane(tile_no), *gs = get_g_plane(tile_no), *bs = get_b_plane(tile_no);
 
             for (int i = tile.sy; i < tile.ey; i++) {
                 for (int j = tile.sx; j < tile.ex; j++) {
                     const uint8_t r = image[3 * (W * i + j)],
                             g = image[3 * (W * i + j) + 1],
                             b = image[3 * (W * i + j) + 2];
-                    r_plane[(i - tile.sy) * memory_width + (j - tile.sx)] = r;
-                    g_plane[(i - tile.sy) * memory_width + (j - tile.sx)] = g;
-                    b_plane[(i - tile.sy) * memory_width + (j - tile.sx)] = b;
+                    int ix = (i - tile.sy) * memory_width + (j - tile.sx);
+                    rs[ix] = r;
+                    gs[ix] = g;
+                    bs[ix] = b;
                 }
             }
         }
-    }
-
-    void initialize_dists() {
-        reset_dists();
-        std::fill(
-                tile_min_neighbor_indices.begin(),
-                tile_min_neighbor_indices.end(),
-                0xFF
-        );
     }
 
     void reset_dists() {
@@ -177,14 +156,19 @@ public:
                 tile_min_dists.end(),
                 std::numeric_limits<DistType>::max()
         );
+        std::fill(
+                tile_min_neighbor_indices.begin(),
+                tile_min_neighbor_indices.end(),
+                0xFF
+        );
     }
 
     DistType* get_tile_min_dists(int tile_no) {
-        return &tile_min_dists[tile_memory_size * tile_no];
+        return &tile_min_dists[get_tile_memory_size() * tile_no];
     }
 
     uint8_t* get_tile_min_neighbor_indices(int tile_no) {
-        return &tile_min_neighbor_indices[tile_memory_size * tile_no];
+        return &tile_min_neighbor_indices[get_tile_memory_size() * tile_no];
     }
 
     const LimitedSlots<uint16_t, 16>& get_neighbor_cluster_nos(int tile_no) const {

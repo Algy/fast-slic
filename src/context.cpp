@@ -122,7 +122,8 @@ namespace fslic {
                                 image[3 * index + 1],
                                 image[3 * index + 2]
                         );
-                    }
+
+}
                     color_shift = get_cielab_shift();
                 } else {
                     std::copy(orig_image, orig_image + image.size(), image.begin());
@@ -142,9 +143,7 @@ namespace fslic {
                 fstimer::Scope s("write_to_buffer");
                 tile_set.set_clusters(clusters, K);
                 tile_set.set_image(&image[0]);
-                tile_set.initialize_dists();
-
-                dist_patch.set(compactness);
+                dist_patch.set(compactness, color_shift);
             }
 
             subsample_rem = 0;
@@ -180,6 +179,7 @@ namespace fslic {
                 fstimer::Scope s("full_assign");
                 full_assign();
             }
+
             {
                 fstimer::Scope s("write_back");
                 tile_set.assign_back(assignment);
@@ -203,8 +203,11 @@ namespace fslic {
         }
 
         #pragma omp parallel for num_threads(fsparallel::nth())
-        for (int tile_no = 0; tile_no < tile_set.get_num_tiles(); tile_no++) {
-            assign_clusters(tile_no);
+        for (int row = subsample_rem; row < tile_set.get_num_rows(); row += subsample_stride) {
+            for (int col = 0; col < tile_set.get_num_cols(); col++) {
+                int tile_no = tile_set.get_tile_no(row, col);
+                assign_clusters(tile_no);
+            }
         }
     }
 
@@ -223,57 +226,52 @@ namespace fslic {
 
     template<typename DistType>
     void BaseContext<DistType>::assign_clusters(int tile_no) {
-        const uint8_t *r_plane = tile_set.get_color_plane(tile_no, 0);
-        const uint8_t *g_plane = tile_set.get_color_plane(tile_no, 1);
-        const uint8_t *b_plane = tile_set.get_color_plane(tile_no, 2);
+        const uint8_t *r_plane = tile_set.get_r_plane(tile_no);
+        const uint8_t *g_plane = tile_set.get_g_plane(tile_no);
+        const uint8_t *b_plane = tile_set.get_b_plane(tile_no);
         DistType *min_dists = tile_set.get_tile_min_dists(tile_no);
         uint8_t *min_neighbor_indices = tile_set.get_tile_min_neighbor_indices(tile_no);
 
         auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
         int neighbor_size = neighbors.size();
-        int tile_memory_size = tile_set.get_tile_memory_size();
 
         const auto &tile = tile_set.get_tile(tile_no);
 
+        __m256i old_neighbor_vec = _mm256_loadu_si256((__m256i *)min_neighbor_indices);
+        __m256i old_min_dists = _mm256_loadu_si256((__m256i *)min_dists);
         for (int nid = 0; nid < neighbor_size; nid++) {
             uint16_t cluster_no = neighbors[nid];
             const Cluster* cluster = &clusters[cluster_no];
 
-            int dy = (int)cluster->y - tile.sy, dx = (int)cluster->x - tile.sx;
-            if (!(dist_patch.in_range(dy) && dist_patch.in_range(dx))) continue;
-            DistType* __restrict spatial_dist_y = dist_patch.at_y(dy);
-            DistType* __restrict spatial_dist_x = dist_patch.at_x(dx);
+            int dy = tile.sy - (int)cluster->y, dx = tile.sx - (int)cluster->x;
+            if (!(dist_patch.y_in_range(dy) && dist_patch.x_in_range(dx))) continue;
+            const DistType* spatial_dist = dist_patch.at(dy, dx);
 
             __m256i cluster_r = _mm256_set1_epi8((uint8_t)cluster->r);
             __m256i cluster_g = _mm256_set1_epi8((uint8_t)cluster->g);
             __m256i cluster_b = _mm256_set1_epi8((uint8_t)cluster->b);
             __m256i cluster_index = _mm256_set1_epi8((uint8_t)nid);
 
-            for (int i = 0; i < tile_memory_size; i += 32) {
-                __m256i old_neighbor_vec = _mm256_loadu_si256((__m256i *)&min_neighbor_indices[i]);
-                __m256i old_min_dists = _mm256_loadu_si256((__m256i *)&min_dists[i]);
-                __m256i r_vec = _mm256_loadu_si256((__m256i *)&r_plane[i]);
-                __m256i g_vec = _mm256_loadu_si256((__m256i *)&g_plane[i]);
-                __m256i b_vec = _mm256_loadu_si256((__m256i *)&b_plane[i]);
-                __m256i dist_r = _mm256_abd_epu8(r_vec, cluster_r);
-                __m256i dist_g = _mm256_abd_epu8(g_vec, cluster_g);
-                __m256i dist_b = _mm256_abd_epu8(b_vec, cluster_b);
-                __m256i dist_color = _mm256_adds_epu8(_mm256_adds_epu8(dist_r, dist_g), dist_b);
-                __m256i dist_spatial = _mm256_max_epu8(
-                    _mm256_loadu_si256((__m256i *)&spatial_dist_x[i]),
-                    _mm256_loadu_si256((__m256i *)&spatial_dist_y[i])
-                );
-                __m256i dist = _mm256_adds_epu8(dist_color, dist_spatial);
-                __m256i new_min_dists = _mm256_min_epu8(old_min_dists, dist);
-                // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
-                __m256i mask = _mm256_cmpeq_epi8(old_min_dists, new_min_dists);
-                // if mask[i+7:i] == 0xFF, choose b[i+7:i], otherwise choose a[i+7:i]
-                __m256i new_neighbor_vec = _mm256_blendv_epi8(cluster_index, old_neighbor_vec, mask);
+            __m256i r_vec = _mm256_loadu_si256((__m256i *)r_plane);
+            __m256i g_vec = _mm256_loadu_si256((__m256i *)g_plane);
+            __m256i b_vec = _mm256_loadu_si256((__m256i *)b_plane);
+            __m256i dist_r = _mm256_abd_epu8(r_vec, cluster_r);
+            __m256i dist_g = _mm256_abd_epu8(g_vec, cluster_g);
+            __m256i dist_b = _mm256_abd_epu8(b_vec, cluster_b);
+            __m256i dist_spatial = _mm256_loadu_si256((__m256i *)spatial_dist);
 
-                _mm256_storeu_si256((__m256i *)&min_dists[i], new_min_dists);
-                _mm256_storeu_si256((__m256i *)&min_neighbor_indices[i], new_neighbor_vec);
-            }
+            __m256i dist = _mm256_adds_epu8(_mm256_adds_epu8(dist_r, dist_g), _mm256_adds_epu8(dist_b, dist_spatial));
+            __m256i new_min_dists = _mm256_min_epu8(old_min_dists, dist);
+            // 0xFFFF if a[i+15:i] == b[i+15:i], 0x0000 otherwise.
+            __m256i mask = _mm256_cmpeq_epi8(old_min_dists, new_min_dists);
+            // if mask[i+7:i] == 0xFF, choose b[i+7:i], otherwise choose a[i+7:i]
+            __m256i new_neighbor_vec = _mm256_blendv_epi8(cluster_index, old_neighbor_vec, mask);
+
+            old_min_dists = new_min_dists;
+            old_neighbor_vec = new_neighbor_vec;
         }
+        _mm256_storeu_si256((__m256i *)min_dists, old_min_dists);
+        _mm256_storeu_si256((__m256i *)min_neighbor_indices, old_neighbor_vec);
     }
 
 
@@ -284,33 +282,31 @@ namespace fslic {
         int *__restrict acc_pool = &acc_pool_[0];
         int *__restrict cluster_acc_vec = &cluster_acc_vec_[0];
 
-        int T = tile_set.get_num_tiles();
-
         const int num_threads = fsparallel::nth();
-
-
         #pragma omp parallel num_threads(num_threads)
         {
             int *__restrict local_acc_vec = &acc_pool[fsparallel::thindex() * K * 6];
             #pragma omp for
-            for (int tile_no = 0; tile_no < T; tile_no++) {
-                auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
-                int neighbor_size = neighbors.size();
-                if (neighbor_size <= 0) continue;
-                const Tile &tile = tile_set.get_tile(tile_no);
-                int tile_memory_width = tile_set.get_tile_memory_width();
-                int tile_memory_size = tile_set.get_tile_memory_size();
+            for (int row = subsample_rem; row < tile_set.get_num_rows(); row += subsample_stride) {
+                for (int col = 0; col < tile_set.get_num_cols(); col++) {
+                    int tile_no = tile_set.get_tile_no(row, col);
+                    auto &neighbors = tile_set.get_neighbor_cluster_nos(tile_no);
+                    int neighbor_size = neighbors.size();
+                    if (neighbor_size <= 0) continue;
+                    const Tile &tile = tile_set.get_tile(tile_no);
 
-                const uint8_t* min_neighbor_indices = tile_set.get_tile_min_neighbor_indices(tile_no);
-                const uint8_t *r_plane = tile_set.get_color_plane(tile_no, 0);
-                const uint8_t *g_plane = tile_set.get_color_plane(tile_no, 1);
-                const uint8_t *b_plane = tile_set.get_color_plane(tile_no, 2);
+                    const uint8_t *min_neighbor_indices = tile_set.get_tile_min_neighbor_indices(tile_no);
+                    const uint8_t *r_plane = tile_set.get_r_plane(tile_no);
+                    const uint8_t *g_plane = tile_set.get_g_plane(tile_no);
+                    const uint8_t *b_plane = tile_set.get_b_plane(tile_no);
 
-                for (int y = tile.sy, tile_i_st = 0; y < tile.ey; y++, tile_i_st += tile_memory_width) {
-                    for (int x = tile.sx, tile_i = tile_i_st; x < tile.ex; x++, tile_i++) {
+                    int sx = tile_set.get_tile_memory_width() * col;
+                    int chunk_width = my_min(tile_set.get_tile_memory_width(), W - sx);
+                    for (int tile_i = 0; tile_i < chunk_width; tile_i++) {
                         int neighbor_index = min_neighbor_indices[tile_i];
                         if (neighbor_index == 0xFF) continue;
                         int cluster_no = neighbors[neighbor_index];
+                        int y = row, x = sx + tile_i;
                         local_acc_vec[6 * cluster_no + 0]++;
                         local_acc_vec[6 * cluster_no + 1] += y;
                         local_acc_vec[6 * cluster_no + 2] += x;

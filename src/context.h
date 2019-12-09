@@ -42,8 +42,8 @@ namespace fslic {
         const uint8_t* orig_image;
         Cluster* clusters;
         int16_t S;
-        TileSet<DistType, 8> tile_set;
-        SpatialDistancePatch<DistType, 8> dist_patch;
+        TileSet<DistType, 32> tile_set;
+        SpatialDistancePatch<DistType, 32> dist_patch;
     protected:
         int16_t subsample_rem;
         int16_t subsample_stride;
