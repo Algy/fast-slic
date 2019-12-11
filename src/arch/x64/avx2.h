@@ -145,15 +145,38 @@ namespace fslic {
                     }
 
                     if (0 < patch_width - patch_width_multiple8) {
-                        uint16_t new_min_dists[8], new_assignments[8];
                         int j = patch_width_multiple8;
+                        int rem = patch_width - patch_width_multiple8;
                         ASSIGNMENT_VALUE_GETTER_BODY
-                        _mm_storeu_si128((__m128i*)new_min_dists, new_min_dist__narrow);
-                        _mm_storeu_si128((__m128i*)new_assignments, new_assignment__narrow);
 
-                        for (int delta = 0; delta < patch_width - patch_width_multiple8; delta++) {
-                            min_dist_row[delta] = new_min_dists[delta];
-                            assignment_row[delta] = new_assignments[delta];
+                        uint64_t dist_4, assignment_4;
+                        if (rem >= 4) {
+                            *(uint64_t *)&min_dist_base_row[j] = _mm_extract_epi64(new_min_dist__narrow, 0);
+                            *(uint64_t *)&assignment_base_row[j] = _mm_extract_epi64(new_assignment__narrow, 0);
+                            rem -= 4;
+                            j += 4;
+                            dist_4 = _mm_extract_epi64(new_min_dist__narrow, 1);
+                            assignment_4 = _mm_extract_epi64(new_assignment__narrow, 1);
+                        } else {
+                            dist_4 = _mm_extract_epi64(new_min_dist__narrow, 0);
+                            assignment_4 = _mm_extract_epi64(new_assignment__narrow, 0);
+                        }
+
+                        switch (rem) {
+                        case 3:
+                            *(uint32_t *)&min_dist_base_row[j] = (uint32_t)dist_4;
+                            *(uint32_t *)&assignment_base_row[j] = (uint32_t)assignment_4;
+                            *(uint16_t *)&min_dist_base_row[j + 2] = (uint16_t)(dist_4 >> 32);
+                            *(uint16_t *)&assignment_base_row[j + 2] = (uint16_t)(assignment_4 >> 32);
+                            break;
+                        case 2:
+                            *(uint32_t *)&min_dist_base_row[j] = (uint32_t)dist_4;
+                            *(uint32_t *)&assignment_base_row[j] = (uint32_t)assignment_4;
+                            break;
+                        case 1:
+                            *(uint16_t *)&min_dist_base_row[j] = (uint16_t)dist_4;
+                            *(uint16_t *)&assignment_base_row[j] = (uint16_t)assignment_4;
+                            break;
                         }
                     }
                 }

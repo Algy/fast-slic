@@ -110,17 +110,45 @@ namespace fslic {
     					vst1q_u16(assignment_row, new_assignment);
     				}
 
-    				if (0 < patch_width - patch_width_multiple8) {
-    					uint16_t new_min_dists[8], new_assignments[8];
-    					int j = patch_width_multiple8;
-    					ASSIGNMENT_VALUE_GETTER_BODY
-    					vst1q_u16(new_min_dists, new_min_dist);
-    					vst1q_u16(new_assignments, new_assignment);
-    					for (int delta = 0; delta < patch_width - patch_width_multiple8; delta++) {
-    						min_dist_row[delta] = new_min_dists[delta];
-    						assignment_row[delta] = new_assignments[delta];
-    					}
-    				}
+                    if (0 < patch_width - patch_width_multiple8) {
+                        int j = patch_width_multiple8;
+                        int rem = patch_width - patch_width_multiple8;
+                        ASSIGNMENT_VALUE_GETTER_BODY
+
+                        uint16x4_t dist_4, assignment_4;
+                        if (rem >= 4) {
+                            vst1q_u16(&min_dist_base_row[j],  vget_low_u16(new_min_dist__narrow));
+                            vst1q_u16(&assignment_base_row[j], vget_low_u16(new_assignment__narrow));
+                            rem -= 4;
+                            j += 4;
+                            dist_4 = vget_high_u16(new_min_dist__narrow);
+                            assignment_4 = vget_high_u16(new_assignment__narrow);
+                        } else {
+                            dist_4 = vget_low_u16(new_min_dist__narrow);
+                            assignment_4 = vget_low_u16(new_assignment__narrow);
+                        }
+
+                        switch (rem) {
+                            case 3:
+                                min_dist_base_row[j] = dist_4[0];
+                                assignment_base_row[j] = assignment_4[0];
+                                min_dist_base_row[j+1] = dist_4[1];
+                                assignment_base_row[j+1] = assignment_4[1];
+                                min_dist_base_row[j+2] = dist_4[2];
+                                assignment_base_row[j+2] = assignment_4[2];
+                                break;
+                            case 2:
+                                min_dist_base_row[j] = dist_4[0];
+                                assignment_base_row[j] = assignment_4[0];
+                                min_dist_base_row[j+1] = dist_4[1];
+                                assignment_base_row[j+1] = assignment_4[1];
+                                break;
+                            case 1:
+                                min_dist_base_row[j] = dist_4[0];
+                                assignment_base_row[j] = assignment_4[0];
+                                break;
+                        }
+                    }
     			}
             }
 		}
