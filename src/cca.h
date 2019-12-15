@@ -22,51 +22,38 @@ namespace cca {
                 parents[i] = i;
             }
         }
-
-    private:
-        inline void set_root(tree_node_t root, tree_node_t node) {
-            for (tree_node_t i = node; root < i; ) {
-                int parent = parents[i];
-                parents[i] = root;
-                i = parent;
-            }
-        }
-    public:
         inline tree_node_t add() {
             tree_node_t c = size++;
             parents.push_back(c);
             return c;
         }
+
         inline void clear() {
             parents.clear();
             size = 0;
         }
 
-        inline int find_root(tree_node_t node) {
-            tree_node_t parent = parents[node];
-            while (parent < node) {
-                node = parent;
-                parent = parents[parent];
+        inline void merge(tree_node_t node_i, tree_node_t node_j) {
+            tree_node_t root_x = node_i, root_y = node_j;
+            while (parents[root_x] != parents[root_y]) {
+                if (parents[root_x] > parents[root_y]) {
+                    if (root_x == parents[root_x]) {
+                        parents[root_x] = parents[root_y];
+                        break;
+                    }
+                    tree_node_t z = parents[root_x];
+                    parents[root_x] = parents[root_y];
+                    root_x = z;
+                } else {
+                    if (root_y == parents[root_y]) {
+                        parents[root_y] = parents[root_x];
+                        break;
+                    }
+                    tree_node_t z = parents[root_y];
+                    parents[root_y] = parents[root_x];
+                    root_y = z;
+                }
             }
-            return node;
-        }
-        inline tree_node_t find(tree_node_t node) {
-            tree_node_t root = find_root(node);
-            set_root(root, node);
-            return root;
-        }
-
-        inline tree_node_t merge(tree_node_t node_i, tree_node_t node_j) {
-            tree_node_t root = find_root(node_i);
-            tree_node_t root_j = find_root(node_j);
-            if (root > root_j) root = root_j;
-            set_root(root, node_j);
-            set_root(root, node_i);
-            return root;
-        }
-
-        inline void add_single(tree_node_t node_i, tree_node_t single_j) {
-            parents[single_j] = parents[node_i];
         }
         std::unique_ptr<ComponentSet> flatten();
     };

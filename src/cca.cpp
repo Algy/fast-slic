@@ -71,12 +71,12 @@ namespace cca {
                     int left_index = index - 1, up_index = index - W;
 
                     if (left_cluster_no == cluster_no) {
-                        cc_set.add_single(left_index, index);
-                        if (assignment[up_index] == cluster_no && cc_set.parents[left_index] != cc_set.parents[up_index]) {
+                        cc_set.merge(left_index, index);
+                        if (assignment[up_index] == cluster_no) {
                             cc_set.merge(left_index, up_index);
                         }
                     } else if (assignment[up_index] == cluster_no) {
-                        cc_set.add_single(up_index, index);
+                        cc_set.merge(up_index, index);
                     }
                     left_cluster_no = cluster_no;
                 }
