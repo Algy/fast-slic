@@ -117,15 +117,15 @@ namespace fslic {
 
                         uint16x4_t dist_4, assignment_4;
                         if (rem >= 4) {
-                            vst1q_u16(&min_dist_base_row[j],  vget_low_u16(new_min_dist__narrow));
-                            vst1q_u16(&assignment_base_row[j], vget_low_u16(new_assignment__narrow));
+                            vst1_u16(&min_dist_base_row[j],  vget_low_u16(new_min_dist));
+                            vst1_u16(&assignment_base_row[j], vget_low_u16(new_assignment));
                             rem -= 4;
                             j += 4;
-                            dist_4 = vget_high_u16(new_min_dist__narrow);
-                            assignment_4 = vget_high_u16(new_assignment__narrow);
+                            dist_4 = vget_high_u16(new_min_dist);
+                            assignment_4 = vget_high_u16(new_assignment);
                         } else {
-                            dist_4 = vget_low_u16(new_min_dist__narrow);
-                            assignment_4 = vget_low_u16(new_assignment__narrow);
+                            dist_4 = vget_low_u16(new_min_dist);
+                            assignment_4 = vget_low_u16(new_assignment);
                         }
 
                         switch (rem) {
