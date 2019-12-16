@@ -12,7 +12,7 @@ class BaseSlic(object):
                  convert_to_lab=True,
                  preemptive=False,
                  preemptive_thres=0.05,
-                 manhattan_spatial_dist=False,
+                 manhattan_spatial_dist=True,
                  debug_mode=False,
                  num_threads=-1):
         self.compactness = compactness
