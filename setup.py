@@ -170,7 +170,7 @@ cpp_sources = [
 
 setup(
     name="fast-slic",
-    version="0.3.5",
+    version="0.4.0",
     description="Fast Slic Superpixel Implementation",
     author="Alchan Kim",
     author_email="a9413miky@gmail.com",
