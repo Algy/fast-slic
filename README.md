@@ -4,6 +4,7 @@ Fast-slic is a SLIC-variant algorithm implementation that aims for significantly
 
 It started as a part of my hobby project that demanded true "real time" capability in video stream processing. Among pipelines of it was a postprocessing pipeline smoothing the result of image with SLIC superpixels and CRF. Unfortunately, there were no satisfying library for real-time(>30fps) goal. [gSLICr](https://github.com/carlren/gSLICr) was the most promising candidate, but I couldn't make use of it due to limited hardware and inflexible license of CUDA. Therefore, I made the blazingly fast variant of SLIC using only CPU.
 
+[Paper preprint](https://github.com/Algy/fast-slic/files/4009304/fastslic.pdf)
 ## Demo
 <table>
    <tr>
